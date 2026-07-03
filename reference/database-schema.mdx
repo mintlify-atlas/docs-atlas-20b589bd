@@ -1,5 +1,5 @@
 ---
-title: "Database Schema Reference: Prisma Models"
+title: "Database Schema Reference: Prisma Models for MariaDB"
 sidebarTitle: "Database Schema"
 description: "Prisma ORM schema for MariaDB: GuildSettings, Warn, WarnLog, Ticket, TicketCategory, TicketAction, WhitelistLog, ActivityLog, User, and SystemError models."
 ---
@@ -335,7 +335,7 @@ model User {
 
 **Table:** `system_errors`
 
-Records unhandled bot errors for post-mortem debugging. The `unhandledRejection` and `uncaughtException` handlers in both `index-general.js` and `index-whitelist.js` write here in production. Rows can be reviewed via `/db-tables` or Prisma Studio.
+Records unhandled bot errors for post-mortem debugging. Application code (commands, event handlers) writes to this table via `logError()` in `utils/logger.js`. The global `unhandledRejection` and `uncaughtException` handlers in both entry points write to structured log files via `utils/structuredLogger.js` rather than directly to this table. Rows can be reviewed via `/db-tables` or Prisma Studio.
 
 ```prisma
 model SystemError {

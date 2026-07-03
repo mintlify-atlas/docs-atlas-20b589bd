@@ -1,5 +1,5 @@
 ---
-title: "Contributing to Capinetta RP Bot System"
+title: "Contribution Guidelines — Capinetta RP Bot System"
 sidebarTitle: "Guidelines"
 description: "Learn how to contribute code, report bugs, suggest features, and follow code standards for the Capinetta RP Bot System under the MIT license."
 ---
@@ -9,6 +9,15 @@ Contributions to the Capinetta RP Bot System are welcome and accepted under the 
 <Note>
   Because this system was originally built for a specific FiveM/GTA Roleplay community (Capi Netta RP), some features are tailored to that context. When contributing new functionality, please keep changes broadly applicable so the system remains useful to other communities who adopt it.
 </Note>
+
+## Code of Conduct
+
+By participating in this project, you agree to the following standards:
+
+- Be respectful and constructive with all contributors.
+- Accept constructive criticism gracefully.
+- Focus on what is best for the community.
+- Spam, harassment, discrimination, and inappropriate content are not tolerated.
 
 ## Getting Started
 
@@ -240,6 +249,24 @@ Open a [GitHub Discussion](https://github.com/Capinetta-RP/capinetta-discord-bot
 - **Alternatives considered**: other approaches you thought about
 
 You can also join the [Capi Netta RP Discord server](https://discord.gg/tpxRFHugX7) to discuss ideas with the community before writing code.
+
+## Testing
+
+Before submitting a PR, verify your changes manually:
+
+- Test all affected commands in a real Discord server with appropriate bot permissions.
+- Confirm no existing functionality is broken (tickets, warn, history, etc.).
+- Validate edge cases and permission boundaries.
+
+You can also run these checks locally:
+
+```bash
+# Validate Prisma schema
+npx prisma validate
+
+# Start the bot in development mode
+npm run dev
+```
 
 ## Code Review Process
 

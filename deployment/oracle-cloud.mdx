@@ -1,7 +1,7 @@
 ---
 title: "Deploy Capinetta RP Bot on Oracle Cloud Free Tier"
 sidebarTitle: "Oracle Cloud"
-description: "Step-by-step guide to deploying the bot system on Oracle Cloud's Always Free Tier: 2 vCPU, 12GB RAM, 200GB storage — permanently free with no credit card charges."
+description: "Deploy Capinetta on Oracle Cloud's Always Free Tier: 4 vCPU, 24 GB RAM, 200 GB storage — permanently free and the recommended production platform."
 ---
 
 Oracle Cloud's Always Free Tier provides up to 4 vCPU (Ampere ARM), 24 GB RAM, and 200 GB storage with **no time limit and no automatic billing** — making it the recommended production platform for Capinetta RP communities of any size. The `/stats` command inside Discord auto-detects Oracle Cloud and reports correct system metrics for the instance.
@@ -109,7 +109,7 @@ cp .env.example .env
 nano .env   # Fill in all required variables (tokens, DB credentials, OAuth2, etc.)
 ```
 
-Key variables to set in `.env`:
+Key variables to set in `.env` (variable names match `.env.example` exactly):
 
 ```bash
 GENERAL_TOKEN=your_general_bot_token
@@ -130,7 +130,7 @@ npm install
 # Push the Prisma schema to the database
 npx prisma db push
 
-# Deploy slash commands to Discord
+# Deploy slash commands to Discord (deploys both general and whitelist commands)
 npm run deploy
 
 # Start both bots with PM2
@@ -157,5 +157,5 @@ After running `pm2 startup`, copy and run the command it prints (it will look li
   sudo certbot --nginx -d your-domain.com
   ```
 
-  Then update `DASHBOARD_CALLBACK_URL` in `.env` to `https://your-domain.com/auth/discord/callback` and run `pm2 restart all`.
+  Then update `DASHBOARD_CALLBACK_URL` in `.env` to `https://your-domain.com/auth/discord/callback` and run `pm2 restart all`. For local HTTPS testing only, run `npm run gen-ssl` to generate self-signed certificates into `certs/`.
 </Tip>

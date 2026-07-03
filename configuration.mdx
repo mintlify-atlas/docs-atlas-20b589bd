@@ -1,7 +1,7 @@
 ---
-title: "Configure Capinetta RP Bot System Environment"
+title: "Configure the Capinetta RP Bot System's Environment"
 sidebarTitle: "Configuration"
-description: "Complete reference for all environment variables required and optional for running both bots, the web dashboard, Redis caching, and the alert monitoring system."
+description: "Full reference for every environment variable: bot tokens, database URL, OAuth2, Redis, HTTPS, monitoring thresholds, cache TTLs, and ticket timers."
 ---
 
 All runtime configuration for the Capinetta RP Bot System lives in a single `.env` file at the project root. This file drives every moving part: the two bot tokens, the MariaDB connection string, Discord OAuth2 credentials for the web dashboard, optional Redis caching, HTTPS termination, Discord webhook alerts, monitoring thresholds, cache TTLs, and ticket behaviour timers. The file is validated at startup by `config.js` — if any required variable is absent, the process logs a fatal error listing the missing keys and exits before attempting to connect to Discord or the database.
@@ -98,6 +98,40 @@ These variables configure the Bot Whitelist process and are read at startup from
 
 <ParamField body="WHITELIST_CHANNEL_ID" type="string">
   Channel ID where whitelist decision embeds are posted after a staff member approves or rejects an application. The bot must have **Send Messages** permission in this channel.
+</ParamField>
+
+---
+
+## General Bot Channel & Role Variables
+
+These variables are read by `config.general` in `config.js` and configure the operational channels and roles used by Bot General. All are optional — the bot starts without them, but features that depend on them (welcome cards, audit logs, role restoration) will be silently skipped until they are set.
+
+<ParamField body="GENERAL_WELCOME_CHANNEL" type="string">
+  Channel ID where the Canvas welcome card is posted whenever a new member joins the server. The bot must have **Send Messages** and **Attach Files** permissions in this channel.
+</ParamField>
+
+<ParamField body="GENERAL_LOGS_CHANNEL" type="string">
+  Channel ID for audit log events — message edits/deletions, role changes, bans, voice activity, and member updates are posted here.
+</ParamField>
+
+<ParamField body="GENERAL_VERIFY_CHANNEL" type="string">
+  Channel ID where the verification button panel (posted by `/set-verify`) is displayed. If omitted, the verification system will not function.
+</ParamField>
+
+<ParamField body="GENERAL_ROLE_NO_VERIFY" type="string">
+  Role ID assigned to members who have **not yet verified**. The anti-bot system and the verification button use this role to identify unverified users.
+</ParamField>
+
+<ParamField body="GENERAL_ROLE_USER" type="string">
+  Role ID granted to members after they complete verification. The `/unmute` command also restores this role as part of the full role set stored in the database.
+</ParamField>
+
+<ParamField body="GENERAL_ROLE_MUTED" type="string">
+  Role ID applied by the anti-spam system when a user is moved to the isolation zone. The bot saves the user's previous roles to MariaDB before applying this role, so `/unmute` can fully restore them.
+</ParamField>
+
+<ParamField body="GENERAL_SUPPORT_SCAM_CHANNEL" type="string">
+  Channel ID of a dedicated warning channel where scam-related support alerts are posted. Used by the informational support message sent via `/set-support`.
 </ParamField>
 
 ---
@@ -200,6 +234,14 @@ These variables tune how long data lives in the Redis (or in-memory) cache. All 
   Interval at which the background job refreshes cached user profiles in batches. Default: `900000` (15 minutes).
 </ParamField>
 
+<ParamField body="CACHE_USER_PROFILE_BATCH" type="number" default="50">
+  Number of user profiles the background refresh job processes per batch cycle. Keeping this value low avoids Discord API rate limits during large bulk refreshes. Default: `50`.
+</ParamField>
+
+<ParamField body="CACHE_USER_PROFILE_MAX_SIZE" type="number" default="1000">
+  Maximum number of user profiles stored in the in-memory cache at once. When the limit is reached, the oldest entries are evicted. Default: `1000`.
+</ParamField>
+
 <ParamField body="CACHE_STATS_TTL" type="number" default="300000">
   Time-to-live for server statistics data shown on the dashboard. Default: `300000` (5 minutes).
 </ParamField>
@@ -209,7 +251,19 @@ These variables tune how long data lives in the Redis (or in-memory) cache. All 
 </ParamField>
 
 <ParamField body="LOGS_CLEANUP_INTERVAL" type="number" default="86400000">
-  How often the background job runs to purge audit log entries older than 30 days. Default: `86400000` (1 day).
+  How often the background job runs to purge audit log entries that exceed the retention window. Default: `86400000` (1 day).
+</ParamField>
+
+<ParamField body="LOGS_RETENTION_DAYS" type="number" default="30">
+  Number of days audit log entries are kept before the cleanup job deletes them. Default: `30` (30 days).
+</ParamField>
+
+---
+
+## API Variables
+
+<ParamField body="API_MEMBER_FETCH_COOLDOWN" type="number" default="30000">
+  Minimum time in milliseconds between successive Discord API calls to fetch guild member data. This cooldown prevents hitting Discord's rate limits when the dashboard or background jobs request member profiles in quick succession. Default: `30000` (30 seconds).
 </ParamField>
 
 ---
@@ -256,6 +310,15 @@ WHITELIST_GUILD_ID=ID_TU_SERVIDOR_WHITELIST
 WHITELIST_STAFF_ROLE_ID=ID_ROL_STAFF_WHITELIST
 WHITELIST_CHANNEL_ID=ID_CANAL_RESULTADOS_WHITELIST
 
+# === BOT GENERAL — CANALES Y ROLES ===
+GENERAL_WELCOME_CHANNEL=ID_CANAL_BIENVENIDA
+GENERAL_LOGS_CHANNEL=ID_CANAL_LOGS
+GENERAL_VERIFY_CHANNEL=ID_CANAL_VERIFICACION
+GENERAL_ROLE_NO_VERIFY=ID_ROL_SIN_VERIFICAR
+GENERAL_ROLE_USER=ID_ROL_USUARIO_VERIFICADO
+GENERAL_ROLE_MUTED=ID_ROL_AISLADO
+GENERAL_SUPPORT_SCAM_CHANNEL=ID_CANAL_SOPORTE_SCAM
+
 # === BASE DE DATOS (MariaDB/MySQL) ===
 DATABASE_URL="mysql://USUARIO:PASSWORD@localhost:3306/NOMBRE_BD"
 
@@ -286,9 +349,15 @@ ALERT_RESPONSE_TIME=1000
 # === CONFIGURACIÓN DE CACHÉ ===
 CACHE_USER_PROFILE_TTL=600000
 CACHE_USER_PROFILE_REFRESH=900000
+CACHE_USER_PROFILE_BATCH=50
+CACHE_USER_PROFILE_MAX_SIZE=1000
 CACHE_STATS_TTL=300000
 CACHE_DISCORD_METRICS_TTL=45000
 LOGS_CLEANUP_INTERVAL=86400000
+LOGS_RETENTION_DAYS=30
+
+# === API ===
+API_MEMBER_FETCH_COOLDOWN=30000
 
 # === TICKETS ===
 TICKET_INACTIVITY_WARNING=1800000

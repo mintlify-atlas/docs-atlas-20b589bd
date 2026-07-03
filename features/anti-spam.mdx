@@ -1,7 +1,7 @@
 ---
 title: "Automated Anti-Spam Protection for Discord Servers"
 sidebarTitle: "Anti-Spam"
-description: "The anti-spam system detects repeated messages, isolates spammers by saving and removing roles, bulk-deletes spam, and auto-rejects bot accounts under 7 days old."
+description: "Flood detection isolates spammers by saving and stripping their roles, bulk-deletes spam messages, and enforces a verification cooldown to block bot raids."
 ---
 
 The anti-spam system runs entirely automatically inside the `messageCreate` event handler. It monitors every message sent in a guild, identifies flood patterns by tracking consecutive identical messages per user, and responds with a graduated sequence of isolation, bulk deletion, and audit logging — all without requiring any moderator intervention. Combined with new-account rejection and a verification cooldown panel, the system forms a multi-layered defense against raids, bot accounts, and coordinated spam attacks. Because guild settings are stored per-server in MariaDB, every guild the bot is in runs its own independent anti-spam state.
@@ -20,9 +20,9 @@ The anti-spam system runs entirely automatically inside the `messageCreate` even
     1. Fetches the last 10 messages in the channel and bulk-deletes all messages from that user via `bulkDelete`.
     2. Calls `applyScamSanction`, which reads the user's current role list (excluding `@everyone` and the muted role).
     3. Persists that role list to MariaDB with `saveUserRoles(guildId, userId, rolesToSave)`.
-    4. Calls `member.roles.set([settings.roleMuted])`, replacing all roles with the single configured isolation role.
-    5. Sends the user a DM warning them that their account has been restricted.
-    6. Posts a public alert in the configured `supportChannel`.
+    4. Sends the user a DM warning them that their account has been restricted.
+    5. Calls `member.roles.set([settings.roleMuted])`, replacing all roles with the single configured isolation role.
+    6. Posts a public alert in the guild's configured `supportChannel` (stored in `guild_settings`).
     7. Writes a `🛡️ AISLAMIENTO` entry to the guild's audit log channel via `sendLog`.
   </Step>
   <Step title="Counter reset on message change">
@@ -36,7 +36,7 @@ The anti-spam system runs entirely automatically inside the `messageCreate` even
 
 ## New Account Rejection
 
-When a new member joins, the `guildMemberAdd` event checks the account's creation date against the minimum account age threshold defined in `config.js`:
+The `config.general.minAccountDays` field (default: **7**) defines the minimum account age threshold for new members. When a member joins, the `guildMemberAdd` event fires and can be extended to enforce this limit before granting any roles or sending the welcome card:
 
 ```js
 // config.js
@@ -45,7 +45,7 @@ general: {
 }
 ```
 
-Accounts younger than **7 days** are automatically kicked before they can interact with the server. This default threshold is set in `config.general.minAccountDays` and blocks the freshly-created throwaway accounts commonly used in organized raids.
+This configuration value is available for access-control checks targeting freshly-created throwaway accounts commonly used in organized raids.
 
 ## Verification Cooldown
 
@@ -60,20 +60,15 @@ general: {
 
 The `config.general.minVerifyMinutes` value (default: **1 minute**) means automated scripts clicking the button immediately will be denied. Only users who wait out the cooldown receive the verified role. The verification channel ID is read from `config.general.verifyChannel` (env var: `GENERAL_VERIFY_CHANNEL`), and the role granted is `config.general.roleUser` (`GENERAL_ROLE_USER`).
 
-## Spam Detection Parameters
+## Spam Detection Threshold
 
-Both flood thresholds are defined in `config.js` and read at runtime:
-
-| Parameter | Config Key | Default | Description |
-|-----------|-----------|---------|-------------|
-| Message limit | `config.general.spamLimit` | `5` | Max messages tracked in the window |
-| Time window | `config.general.spamInterval` | `5000` ms | Milliseconds before the window resets |
+The flood detection threshold is hardcoded inside `checkDuplicate`: isolation triggers when `data.count >= 3`, meaning three consecutive identical messages from the same user. The `config.js` file also defines `spamLimit` and `spamInterval` values that are available for future use or custom extensions:
 
 ```js
 // config.js
 general: {
-  spamLimit: 5,
-  spamInterval: 5000,
+  spamLimit: 5,        // Reserved — not read by checkDuplicate
+  spamInterval: 5000,  // Reserved — not read by checkDuplicate
 }
 ```
 

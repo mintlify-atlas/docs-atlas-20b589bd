@@ -1,7 +1,7 @@
 ---
 title: "FiveM Whitelist Application Management"
 sidebarTitle: "Whitelist"
-description: "Review FiveM RP whitelist applications directly in Discord. Approve or reject with branded embeds and automatic result notifications using the Whitelist Bot."
+description: "Manage FiveM RP whitelist decisions in Discord. Approve or reject applicants with branded embeds, result channel posts, and a full audit trail in MariaDB."
 ---
 
 The Whitelist Bot is a dedicated, independent bot process (`index-whitelist.js`) that handles all GTA RP whitelist application decisions. Running separately from the General Bot keeps whitelist workflows isolated — staff review applications and post decisions without cluttering the main moderation bot's scope. Results are announced in a configured results channel via branded embeds: green for approvals, red for rejections. Every decision is persisted to the `whitelistLog` table with a unique constraint that prevents duplicate records per user and action type.

@@ -1,7 +1,7 @@
 ---
-title: "Security Policy and Vulnerability Reporting"
+title: "Security Policy and Vulnerability Reporting — Capinetta"
 sidebarTitle: "Security"
-description: "How to responsibly disclose security vulnerabilities in Capinetta RP Bot System. Report privately via Discord — do not open public GitHub issues for security bugs."
+description: "Responsible disclosure policy for Capinetta RP Bot System. Report security vulnerabilities privately via Discord DM or GitHub Security Advisory."
 ---
 
 The security of Discord communities running the Capinetta RP Bot System is a priority. This system handles sensitive data including Discord OAuth2 tokens, session cookies, moderation records, and server configuration. If you discover a vulnerability, please report it privately through one of the channels listed below — **never create a public GitHub issue for security bugs**, as that could expose the flaw to bad actors before a patch is available.
@@ -36,32 +36,11 @@ A clear and complete report helps the maintainers respond quickly. Please provid
 | Stage | Timeframe |
 |:------|:----------|
 | Acknowledgment of your report | Within 48 hours |
-| Assessment and fix timeline communicated | Within 5 business days |
+| Assessment and fix timeline communicated | Within 3–7 days |
 | Patch developed and tested | 7–30 days depending on severity |
 | Coordinated disclosure published | After the patch is released |
 
 Verified security reports will be credited in `CHANGELOG.md` with your consent.
-
-## Scope
-
-### In Scope
-
-These categories are actively maintained and considered in scope for vulnerability reports:
-
-- **Authentication bypass** in the web dashboard (OAuth2 flow, session validation)
-- **Privilege escalation** via bot commands — e.g., accessing admin-only commands without the required Discord permission bits
-- **SQL injection or data exposure** through Prisma queries
-- **Session hijacking** or cookie security weaknesses
-- **Discord token or secret exposure** through logging, error messages, or API responses
-- **Missing permission checks** on sensitive slash commands (`/warn`, `/kick`, `/config`, etc.)
-- **Cross-site scripting (XSS)** in dashboard EJS templates
-
-### Out of Scope
-
-- Vulnerabilities in third-party dependencies — report those directly to the upstream project (e.g., via `npm audit`)
-- Issues that require physical access to the server machine
-- Social engineering attacks against community staff
-- Theoretical vulnerabilities with no practical exploit path
 
 ## Security Features in the Codebase
 

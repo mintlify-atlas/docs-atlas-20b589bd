@@ -1,7 +1,7 @@
 ---
 title: "Deploy Capinetta RP Bot on a Linux VPS"
 sidebarTitle: "VPS"
-description: "Deploy the bot system on any Linux VPS (DigitalOcean, Linode, Hetzner, etc.) running Ubuntu 22.04. Covers Node.js, MariaDB, PM2, Nginx reverse proxy, and SSL."
+description: "Deploy the bot system on any Linux VPS (DigitalOcean, Linode, Hetzner) running Ubuntu 22.04. Covers Node.js, MariaDB, PM2, Nginx reverse proxy, and SSL."
 ---
 
 Any VPS running Ubuntu 20.04 or newer will work for hosting the Capinetta RP Bot System. A 1 vCPU / 2 GB RAM droplet (~$5/mo) is sufficient for small communities; 2 vCPU / 4 GB RAM is recommended for larger servers with heavier ticket and moderation activity. This guide is written for Ubuntu 22.04 LTS and has been tested on DigitalOcean, Linode, and Hetzner.
@@ -144,6 +144,10 @@ pm2 restart all
 ```
 
 </Steps>
+
+<Note>
+  For local HTTPS testing without a domain, the project includes a `generate-ssl-certs.js` script that creates self-signed certificates using OpenSSL. Run `npm run gen-ssl` to generate `certs/key.pem` and `certs/cert.pem`, then set `HTTPS_ENABLED=true` in `.env`. These self-signed certs are for **development only** — use Let's Encrypt for production.
+</Note>
 
 <Warning>
   After enabling HTTPS, you **must** update the Discord OAuth2 redirect URI in the [Discord Developer Portal](https://discord.com/developers/applications). Navigate to your application → **OAuth2 → Redirects** and add `https://your-domain.com/auth/discord/callback`. Dashboard logins will fail with an `invalid_client` error until this is done.

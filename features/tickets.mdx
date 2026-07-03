@@ -1,7 +1,7 @@
 ---
 title: "Professional Ticket System with Transcripts and KPIs"
 sidebarTitle: "Tickets"
-description: "Create support categories, post interactive panels, manage tickets through a full lifecycle with claim/transfer/close, automatic HTML transcripts, and view staff KPI metrics."
+description: "Create support categories, post button panels, manage tickets through claim/transfer/close, generate full HTML transcripts, and track staff KPI metrics."
 ---
 
 The Capinetta RP ticket system is a fully self-contained support module located in `utils/tickets/`. It supports dynamic support categories with custom names, emojis, descriptions, and role assignments. When a panel is posted to a channel, users interact with a button grid to open a private ticket channel. Staff members can claim, transfer, and close tickets through button interactions — and when a ticket closes, the system automatically generates a complete HTML transcript, delivers it to the user by DM, archives it in the configured logs channel, and records the action in the database. Inactivity reminders ping staff when tickets go unanswered, and the `/ticket metrics` command exposes KPI data on resolution times, volume, and staff productivity.

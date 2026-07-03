@@ -1,5 +1,5 @@
 ---
-title: "Slash Command Reference for Capinetta RP Bots"
+title: "Slash Command Reference for Capinetta RP Discord Bots"
 sidebarTitle: "Commands"
 description: "Complete reference for all slash commands across both bots: admin setup and config, ticket management, moderation actions, whitelist approval, and utility monitoring commands."
 ---
@@ -30,6 +30,8 @@ These commands require the **Administrator** permission and are loaded from `com
 | `/set-support` | Posts the informational support/rules message to the current channel. | Administrator |
 | `/set-debug` | Redirects the bot's debug and error log channel to a new target without running `/setup` again. | Administrator |
 | `/db-tables` | Diagnostic command that queries all Prisma models and displays a live record count per database table. Useful for verifying data integrity after migrations. | Administrator |
+| `/reset-warns` | Clear a user's active warning counter in the database, resetting it to zero. Also updates the in-memory `warnMap` cache immediately. | Administrator |
+| `/clear` | Bulk delete up to 100 messages in the current channel using Discord's `bulkDelete` API. Optionally filter by a specific user. | Manage Messages |
 
 ### Ticket Management
 
@@ -37,7 +39,7 @@ The `/ticket` command is a parent command with eight subcommands for full lifecy
 
 | Command | Subcommand | Description | Permission |
 |---|---|---|---|
-| `/ticket` | `add <nombre> <emoji> <rol> <categoria_discord> <descripcion>` | Create a new ticket category with a primary role, Discord category channel, emoji, and description. Optionally accepts two extra roles (`rol_extra_1`, `rol_extra_2`). | Administrator |
+| `/ticket` | `add <nombre> <rol> <categoria_discord> <emoji> <descripcion>` | Create a new ticket category with a primary role, Discord category channel, emoji, and description. Optionally accepts two extra roles (`rol_extra_1`, `rol_extra_2`). | Administrator |
 | `/ticket` | `edit <nombre_actual>` | Modify an existing category's name, emoji, description, primary role, extra roles, or target Discord category. All fields except the current name are optional. | Administrator |
 | `/ticket` | `remove <nombre>` | Permanently delete a ticket category by its exact name. | Administrator |
 | `/ticket` | `list` | Display all configured ticket categories for the guild in an embed. | Administrator |
@@ -55,11 +57,9 @@ Loaded from `commands/bot-general/moderation/`. Permissions vary per command.
 | Command | Arguments | Description | Permission |
 |---|---|---|---|
 | `/warn` | `@usuario [razon]` | Issue a warning to a user. Warnings are persisted to the `warns` table and logged in `warn_logs`. At 3 cumulative warnings the bot automatically applies a Discord timeout for the duration configured in `config.general.warnTimeoutMinutes` (default: 10 minutes). | Moderate Members |
-| `/reset-warns` | `@usuario` | Clear a user's warning counter in the database, resetting them to zero. | Administrator |
-| `/history` | `@usuario` | Retrieve a user's full sanction history including warns, kicks, and bans with timestamps. | Manage Messages |
-| `/unmute` | `@usuario` | Lift a user's sanction and restore all roles that were saved to the `warns.roles` JSON column before isolation. | Manage Roles |
+| `/history` | `@usuario` | Retrieve a user's full sanction history including warns, kicks, and bans with timestamps. | Moderate Members |
+| `/unmute` | `@usuario` | Lift a user's sanction and restore all roles that were saved to the `warns.roles` JSON column before isolation. | Moderate Members |
 | `/kick` | `@usuario razon` | Kick a member from the server with a reason that is written to the Discord Audit Log for full traceability. | Kick Members |
-| `/clear` | `amount` | Bulk delete up to 100 messages in the current channel using Discord's `bulkDelete` API. | Manage Messages |
 
 ---
 
@@ -69,8 +69,8 @@ Loaded from `commands/bot-general/utility/`.
 
 | Command | Description | Permission |
 |---|---|---|
-| `/stats` | Displays a real-time technical dashboard embed with: CPU load average, RAM usage (system + Node.js heap + RSS), process uptime, disk info, Discord bot WebSocket latency, MariaDB connection latency, live ticket counts (open / unclaimed / closed / archived), warn log count, system error count, and guild member breakdown. Results are cached for 10 seconds to prevent spam. | Administrator |
-| `/ping` | Quick latency check — shows the bot's WebSocket heartbeat ping to Discord and tests the MariaDB connection round-trip time. Available to all members. | Everyone |
+| `/stats` | Displays a real-time technical dashboard embed with: CPU load average, RAM usage (system + Node.js heap + RSS), process uptime, Discord bot WebSocket latency, MariaDB connection latency, live ticket counts (open / unclaimed / closed / archived), warn log count, system error count, guild member breakdown (humans vs bots, new members, voice activity, staff online), and multi-server bot stats. Results are cached for 10 seconds to prevent spam. | Administrator |
+| `/ping` | Quick connectivity check — replies with "Pong! 🏓" to confirm the bot is online and responsive. Available to all members. | Everyone |
 
 ---
 

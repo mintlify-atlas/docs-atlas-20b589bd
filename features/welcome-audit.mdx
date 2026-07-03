@@ -1,7 +1,7 @@
 ---
 title: "Welcome Cards and Full Audit Logging System"
 sidebarTitle: "Welcome & Audit"
-description: "Auto-generate canvas-based GTA-style welcome images on member join and log all server events including message edits, role changes, bans, and voice activity."
+description: "GTA-style canvas welcome cards on member join, plus audit logs for message edits, role changes, bans, bulk deletes, and voice activity to a logs channel."
 ---
 
 The Capinetta RP bot ships two complementary systems that activate through Discord gateway events: a canvas-based welcome card generator that fires on every member join, and a comprehensive audit logging pipeline that captures and persists a wide range of server events. Welcome cards are delivered as image attachments to the configured welcome channel, styled with a GTA-inspired font and the server's brand colors. Audit logs are sent as rich embeds to the configured logs channel and are also written to the `activityLog` table in MariaDB, making them searchable and filterable from the web dashboard.
@@ -53,10 +53,9 @@ All audit events are dispatched by individual event files in `events/bot-general
 | Message deleted | `messageDelete.js` | Author tag, channel mention, full message content (or `*Archivo / embed*` if no text), executor from Audit Logs, timestamp |
 | Message edited | `messageUpdate.js` | Author, channel, before/after content comparison, timestamp |
 | Bulk message delete | `messageBulkDelete.js` | Channel, number of messages deleted, timestamp |
-| Member joined | `guildMemberAdd.js` | Username, account creation date, account age in days |
+| Member joined | `guildMemberAdd.js` | Username, welcome card image sent to configured channel, `roleNoVerify` role assigned |
 | Role changed | `guildMemberUpdate.js` | User, list of roles added and/or removed (with debounce to consolidate rapid changes) |
-| Member banned | `guildBanAdd.js` | User tag, executor tag and ID (fetched from Audit Logs), reason |
-| User profile updated | `userUpdate.js` | Username or avatar changes |
+| Member banned | `guildBanAdd.js` | User tag, executor tag and ID (fetched from Audit Logs) |
 | Voice activity | `voiceStateUpdate.js` | Channel join, leave, and move between channels |
 
 ### Message Delete Audit Log Lookup
@@ -65,11 +64,15 @@ All audit events are dispatched by individual event files in `events/bot-general
 
 ### Ban Logging
 
-`guildBanAdd.js` immediately queries Audit Logs (`AuditLogEvent.MemberBanAdd`) to identify the moderator who issued the ban. The log entry uses the `sendLog` utility, which posts to the guild's configured `logsChannel`:
+`guildBanAdd.js` immediately queries Audit Logs (`AuditLogEvent.MemberBanAdd`) to identify the moderator who issued the ban. The log is dispatched via `sendLog` with the ban event's `ban.user` and the formatted message:
 
 ```
 🔨 username#0000 fue baneado por ModeratorName (moderatorId)
 ```
+
+<Note>
+  The `userUpdate.js` event handler is currently disabled — it returns immediately without logging profile changes. Username and avatar changes are not tracked at this time.
+</Note>
 
 ---
 

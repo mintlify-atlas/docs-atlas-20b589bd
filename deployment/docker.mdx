@@ -1,16 +1,47 @@
 ---
 title: "Run Capinetta RP Bot System with Docker Compose"
 sidebarTitle: "Docker"
-description: "Use Docker Compose to run both bots and the dashboard alongside MariaDB and Redis in isolated containers, ideal for local development and reproducible environments."
+description: "Run both bots alongside MariaDB and Redis in isolated containers using Docker Compose. Ideal for local development, testing, and reproducible environments."
 ---
 
 Docker Compose bundles the Capinetta RP Bot System with MariaDB and Redis in isolated, reproducible containers — no manual dependency installation required on the host. This approach is ideal for local development, automated testing, or containerized production deployments where you want strict environment parity between machines.
 
-## Docker Compose File
+<Warning>
+  The repository does **not** ship a `Dockerfile` or `docker-compose.yml`. The files shown below are **suggested templates** — create them in your project root before running any `docker compose` commands. Review and adjust environment variables, port mappings, and the CMD entrypoint to match your deployment requirements.
+</Warning>
+
+## Suggested Dockerfile
+
+Create a `Dockerfile` in the project root. This template starts the General Bot (`index-general.js`). If you need to run both bots (`index-general.js` and `index-whitelist.js`) in the same container, replace the `CMD` with a process manager or shell script; alternatively, define two separate services in `docker-compose.yml` each with its own `command` override.
+
+```dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install system dependencies required by Prisma and canvas
+RUN apk add --no-cache openssl
+
+# Install Node dependencies
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy application source
+COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
+
+EXPOSE 3000
+
+CMD ["node", "index-general.js"]
+```
+
+## Suggested Docker Compose File
 
 Create a `docker-compose.yml` in the project root:
 
-```yaml docker-compose.yml
+```yaml
 version: '3.8'
 services:
   mariadb:
@@ -52,33 +83,6 @@ services:
 
 volumes:
   mariadb_data:
-```
-
-## Dockerfile
-
-Create a `Dockerfile` in the project root:
-
-```dockerfile Dockerfile
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apk add --no-cache openssl
-
-# Install Node dependencies
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Copy application source
-COPY . .
-
-# Generate Prisma client
-RUN npx prisma generate
-
-EXPOSE 3000
-
-CMD ["node", "index-general.js"]
 ```
 
 ## Starting the Stack

@@ -1,7 +1,7 @@
 ---
 title: "Deploying Capinetta RP Bot System to Production"
 sidebarTitle: "Overview"
-description: "Choose your deployment platform: Oracle Cloud free tier, a generic Linux VPS, or Docker Compose. All options support PM2 process management and Nginx reverse proxy."
+description: "Choose your deployment platform: Oracle Cloud, a Linux VPS, or Docker Compose. All options use PM2 process management and optional Nginx reverse proxy."
 ---
 
 The Capinetta RP Bot System can be deployed to production across three supported platforms. Regardless of which you choose, **PM2 is the recommended process manager** for running both bots (`capinetta-general` and `capinetta-whitelist`) as persistent, auto-restarting background services. Each platform guide walks you through Node.js setup, MariaDB configuration, slash command deployment, and optional Nginx + SSL hardening.
@@ -58,7 +58,13 @@ After completing the platform-specific setup, these steps apply universally:
    ```
    After adding HTTPS, update `DASHBOARD_CALLBACK_URL` in `.env` to use `https://`.
 
-3. **Enable PM2 startup on boot** — so both bots restart automatically after a server reboot:
+3. **Self-signed SSL for development** — the project ships a `generate-ssl-certs.js` script that creates `certs/key.pem` and `certs/cert.pem` via OpenSSL. Run it with:
+   ```bash
+   npm run gen-ssl
+   ```
+   Then set `HTTPS_ENABLED=true` in `.env` and restart. Use this for local testing only — use Let's Encrypt for production.
+
+4. **Enable PM2 startup on boot** — so both bots restart automatically after a server reboot:
    ```bash
    pm2 startup       # Follow the printed instruction to register the init script
    pm2 save          # Persist the current process list

@@ -10,7 +10,7 @@ PM2 is the recommended process manager for running both bots — `capinetta-gene
 
 The project root contains this configuration file, which `npm run prod` passes directly to PM2:
 
-```js ecosystem.config.js
+```js
 module.exports = {
     apps: [{
         name: "capinetta-general",
@@ -29,6 +29,20 @@ module.exports = {
     }]
 };
 ```
+
+## npm Scripts Reference
+
+The following scripts from `package.json` are relevant to deployment and process management:
+
+| Script | Command run | Description |
+|--------|-------------|-------------|
+| `npm run prod` | `pm2 start ecosystem.config.js` | Start both bots via PM2 |
+| `npm run deploy` | `node deploy-general.js && node deploy-whitelist.js` | Deploy slash commands for both bots |
+| `npm run deploy:general` | `node deploy-general.js` | Deploy General Bot slash commands only |
+| `npm run deploy:whitelist` | `node deploy-whitelist.js` | Deploy Whitelist Bot slash commands only |
+| `npm run gen-ssl` | `node generate-ssl-certs.js` | Generate self-signed SSL certs into `certs/` |
+| `npm run setup` | Install, migrate, deploy, minify, prod | Full production setup in one command |
+| `npm run setup:dev` | Install, db push, deploy, minify, prod | Full development setup in one command |
 
 ## Common PM2 Commands
 

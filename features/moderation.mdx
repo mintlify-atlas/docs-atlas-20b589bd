@@ -1,10 +1,10 @@
 ---
 title: "Moderation Commands: Warnings, Kicks, and Unmute"
 sidebarTitle: "Moderation"
-description: "Manage server discipline with /warn (auto-timeout at 3), /kick with audit trail, /unmute with full DB role restore, /history for sanction records, and /clear for bulk delete."
+description: "Discipline commands: /warn with auto-timeout at 3 strikes, /kick with audit trail, /unmute with DB role restore, /history for sanction records, and /clear."
 ---
 
-The Capinetta RP moderation suite gives staff a consistent, database-backed set of tools for handling disciplinary actions. Every warn, kick, and isolation event is persisted to MariaDB — warnings are written to both the `warn_logs` table (for permanent audit history) and the `warns` table (for the running counter). Before a user is isolated, their full role list is saved so it can be atomically restored later with a single `/unmute` command. Because all records are tied to guild and user IDs, moderators can pull a complete sanction history for any user at any time using `/history`.
+The Capinetta RP moderation suite gives staff a consistent, database-backed set of tools for handling disciplinary actions. Every warn, kick, and isolation event is persisted to MariaDB — warnings are written to both the `warnLog` model (for permanent audit history) and the `warn` model (for the running counter). Before a user is isolated, their full role list is saved so it can be atomically restored later with a single `/unmute` command. Because all records are tied to guild and user IDs, moderators can pull a complete sanction history for any user at any time using `/history`.
 
 ---
 
@@ -12,10 +12,10 @@ The Capinetta RP moderation suite gives staff a consistent, database-backed set 
 
 **Required permission:** `Moderate Members`
 
-Warns a user and increments their running warning counter. The warning is written to two separate database tables:
+Warns a user and increments their running warning counter. The warning is written to two separate Prisma models:
 
-- **`warnLog`** — immutable audit record containing `userId`, `moderatorId`, `reason`, `warnNumber`, and `timestamp`. Never deleted, even after a counter reset.
-- **`warn`** — mutable counter record per `guildId` + `userId` storing the current warn total.
+- **`warnLog`** — immutable audit record containing `userId`, `moderatorId`, `reason`, and `warnNumber`. Created via `addWarnLog`; never deleted, even after a counter reset.
+- **`warn`** — mutable counter record per `guildId` + `userId` storing the current warn total. Upserted via `saveWarnToDB`.
 
 The response embed shows the current warn number out of 3.
 
@@ -50,7 +50,7 @@ The warned user also receives a DM notification if their DMs are open.
 
 **Required permission:** Administrator
 
-Clears the running warn counter in the `warns` table back to `0` for the specified user in the current guild.
+Clears the running warn counter in the `warn` Prisma model back to `0` for the specified user in the current guild.
 
 ```
 /reset-warns @username
@@ -66,7 +66,7 @@ Clears the running warn counter in the `warns` table back to `0` for the specifi
 
 **Required permission:** `Moderate Members`
 
-Queries the `warnLog` Prisma model for the specified user and returns an embed showing their last **10** sanction records, ordered from most recent to oldest.
+Queries the `warnLog` Prisma model for the specified user across all guilds and returns an embed showing their last **10** sanction records, ordered from most recent to oldest.
 
 ```
 /history @username
@@ -113,7 +113,7 @@ Kicks the specified member with an optional reason. The reason is forwarded to D
 - Cannot kick non-kickable members (higher role or server owner)
 - Reason must be ≤ 1000 characters
 
-A structured log entry is also written via `structuredLogger` with `action: 'KICK'`, `userId`, `moderatorId`, `reason`, and `guildId` for dashboard visibility.
+A structured log entry is also written via `structuredLogger` with `action: 'KICK'`, `user`, `userId`, `moderator`, `moderatorId`, `reason`, and `guildId` for dashboard visibility.
 
 ---
 

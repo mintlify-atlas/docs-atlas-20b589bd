@@ -1,5 +1,5 @@
 ---
-title: "Environment Variables Reference for Capinetta RP"
+title: "Environment Variables Reference for Capinetta RP Bot"
 sidebarTitle: "Environment Variables"
 description: "Full reference for every environment variable in .env.example: required bot tokens, database URL, OAuth2 credentials, Redis, HTTPS, alert thresholds, and cache TTLs."
 ---
@@ -167,7 +167,7 @@ These variables configure the thresholds at which the monitoring system fires an
 </ParamField>
 
 <ParamField path="ALERT_MEMORY_USAGE" type="number" default="85">
-  Maximum system memory usage percentage. Alert fires when RAM usage exceeds this value. Default: `85` (alert at ≥85% memory usage). Note: `.env.example` comments show `80%` but the actual default in `config.js` is `85`.
+  Maximum system memory usage percentage. Alert fires when RAM usage exceeds this value. Default: `85` (alert at ≥85% memory usage).
 </ParamField>
 
 <ParamField path="ALERT_DISCORD_RATE_LIMIT" type="number" default="5">
@@ -210,6 +210,20 @@ Fine-tune the in-memory and Redis cache behavior for the web dashboard. All valu
 
 <ParamField path="LOGS_CLEANUP_INTERVAL" type="number" default="86400000">
   How often the background cleanup job runs to prune `activity_logs` entries older than the retention window (default: 30 days). Value is in milliseconds. Default: `86400000` (24 hours).
+</ParamField>
+
+---
+
+## API & Log Retention
+
+Additional tuning variables for member fetch rate limiting and log pruning.
+
+<ParamField path="API_MEMBER_FETCH_COOLDOWN" type="number" default="30000">
+  Minimum interval in milliseconds between full guild member fetch calls in the management dashboard. Prevents Discord rate-limit errors on large servers. Default: `30000` (30 seconds).
+</ParamField>
+
+<ParamField path="LOGS_RETENTION_DAYS" type="number" default="30">
+  Number of days to retain `activity_logs` rows before the background cleanup job prunes them. Default: `30` days. Increase this value on high-traffic servers to retain longer audit history at the cost of additional database storage.
 </ParamField>
 
 ---

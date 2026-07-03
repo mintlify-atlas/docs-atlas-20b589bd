@@ -1,7 +1,7 @@
 ---
 title: "Web Dashboard: Real-Time Monitoring and Administration"
 sidebarTitle: "Dashboard"
-description: "The Express-based web dashboard provides Discord OAuth2 authentication, Redis-cached KPIs, live system metrics, ticket management views, and configurable alert thresholds."
+description: "Express dashboard with Discord OAuth2 login, Redis-cached KPIs, live metrics, ticket transcripts, warn management, and automated webhook alert delivery."
 ---
 
 The Capinetta RP web dashboard is an Express.js application defined in `web/dashboard.js` that runs alongside the bot process. It is served on port `3000` by default (overridden via the `PORT` environment variable) and provides authenticated staff members with real-time system metrics, ticket browsing with HTML transcript viewing, warning management, per-guild configuration editing via SelectMenus, and a full activity audit log. Security is enforced through Helmet HTTP headers, nonce-based Content Security Policy, rate limiting on all routes, HTTPOnly session cookies, and gzip compression. Sessions can be stored in Redis for multi-process resilience or fall back to an in-memory store if Redis is not configured.
@@ -118,8 +118,38 @@ A stricter rate limit applies to all `/api/*` routes: **30 requests per minute p
   <Accordion title="GET /api/guild/:guildId/tickets-status">
     Returns ticket counts grouped by status (`open`, `closed`, `pending`) for a guild. Used by the Overview and Tickets sections.
   </Accordion>
+  <Accordion title="GET /api/guild/:guildId/warns-trend">
+    Returns a day-by-day warn count trend for a guild over the last N days (default: 30). Pass `?days=7` to narrow the range. Used by the Warns Management charts.
+  </Accordion>
+  <Accordion title="GET /api/guilds/comparison">
+    Returns a cross-guild comparison of online members, open tickets, and total warns for all guilds the authenticated user administers. Used by the multi-guild overview charts.
+  </Accordion>
+  <Accordion title="GET /api/fivem/status">
+    Returns the current online/offline status of the configured FiveM server. Requires `FIVEM_BASE_URL` to be set in `.env`.
+  </Accordion>
+  <Accordion title="GET /api/fivem/players">
+    Returns the current player list from the configured FiveM server. Requires `FIVEM_BASE_URL` to be set in `.env`.
+  </Accordion>
+  <Accordion title="GET /api/alerts">
+    Returns all currently active monitoring alerts from the in-memory alert manager.
+  </Accordion>
+  <Accordion title="POST /api/alerts/send">
+    Manually triggers delivery of pending alerts to the configured `ALERTS_WEBHOOK_URL`. Returns `{ sent, total }`. Requires `ALERTS_WEBHOOK_URL` to be configured.
+  </Accordion>
+  <Accordion title="GET /api/logs/statistics">
+    Returns aggregated log statistics (counts by level, error rates) for a given date range. Accepts `?startDate` and `?endDate` query parameters.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Authentication Routes
+
+The following routes handle Discord OAuth2 and are separate from the `/api/*` endpoints. They are not subject to the API rate limiter.
+
+<AccordionGroup>
   <Accordion title="GET /auth/discord">
-    Initiates the Discord OAuth2 authorization flow. Redirects the user to Discord's authorization page.
+    Initiates the Discord OAuth2 authorization flow. Redirects the user to Discord's authorization page requesting the `identify` and `guilds` scopes.
   </Accordion>
   <Accordion title="GET /auth/discord/callback">
     OAuth2 callback handler. Validates the authorization code, creates the session, and redirects to the dashboard. Must match `DASHBOARD_CALLBACK_URL` exactly.
