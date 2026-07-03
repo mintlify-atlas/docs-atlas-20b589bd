@@ -1,0 +1,254 @@
+---
+title: "Contributing to Capinetta RP Bot System"
+sidebarTitle: "Guidelines"
+description: "Learn how to contribute code, report bugs, suggest features, and follow code standards for the Capinetta RP Bot System under the MIT license."
+---
+
+Contributions to the Capinetta RP Bot System are welcome and accepted under the [MIT license](https://github.com/Capinetta-RP/capinetta-discord-bot/blob/main/LICENSE.MD). Whether you're fixing a bug, proposing a new feature, or improving documentation, this guide covers everything you need: code standards, branch conventions, the pull request process, and how to engage with maintainers.
+
+<Note>
+  Because this system was originally built for a specific FiveM/GTA Roleplay community (Capi Netta RP), some features are tailored to that context. When contributing new functionality, please keep changes broadly applicable so the system remains useful to other communities who adopt it.
+</Note>
+
+## Getting Started
+
+<Steps>
+  <Step title="Fork the repository">
+    Fork the project on GitHub at [https://github.com/Capinetta-RP/capinetta-discord-bot](https://github.com/Capinetta-RP/capinetta-discord-bot).
+  </Step>
+  <Step title="Clone your fork">
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/capinetta-discord-bot.git
+    cd capinetta-discord-bot
+    ```
+  </Step>
+  <Step title="Create a feature branch">
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
+    See [Branch Naming](#branch-naming) below for the full naming convention.
+  </Step>
+  <Step title="Set up your development environment">
+    Follow the [Quickstart guide](/quickstart) to install dependencies, configure your `.env` file, and run `npx prisma db push` to sync your local database schema.
+  </Step>
+  <Step title="Make your changes">
+    Write code that follows the [Code Standards](#code-standards) below. Keep commits focused and atomic.
+  </Step>
+  <Step title="Commit with a descriptive message">
+    This project follows [Conventional Commits](https://www.conventionalcommits.org/):
+
+    ```bash
+    git commit -m "feat(tickets): add emoji support to category names"
+    # or
+    git commit -m "fix(antiSpam): resolve false positives in mention detection"
+    ```
+
+    **Commit types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
+  </Step>
+  <Step title="Push and open a Pull Request">
+    Push your branch and open a Pull Request against the `main` branch on GitHub. Fill in the PR template and complete the checklist below before requesting review.
+  </Step>
+</Steps>
+
+## Code Standards
+
+### Language and Runtime
+
+- **Language**: JavaScript (Node.js v18+). TypeScript is not required but type annotations via JSDoc comments are encouraged for complex utilities.
+- **Runtime**: Requires Node.js `>=18.0.0` and npm `>=9.0.0` as specified in `package.json`.
+
+### Naming and Style
+
+```javascript
+// Variables and functions: camelCase
+const userName = "Tullo";
+function handleTicketCreation() {}
+
+// Classes and constructors: PascalCase
+class TicketManager {}
+
+// Global constants: UPPER_SNAKE_CASE
+const MAX_WARNINGS = 3;
+```
+
+- **Indentation**: 4 spaces — no tabs.
+- **Strings**: Use double quotes for Discord message content; single quotes are acceptable in logic code. Be consistent within a file.
+
+### Async / Await
+
+Always use `async/await`. Avoid raw `.then()` callback chains — they make error handling harder to reason about.
+
+```javascript
+// ✅ Correct
+async function handleTicket(interaction) {
+    try {
+        const result = await getTicketData(id);
+        return result;
+    } catch (error) {
+        console.error("Error fetching ticket:", error);
+    }
+}
+
+// ❌ Avoid
+function handleTicket() {
+    getTicketData(id).then(result => {
+        // ...
+    });
+}
+```
+
+### Error Handling
+
+Wrap all Discord API calls and database queries in `try/catch`. Log errors via the project's structured `logger.js` utility — never swallow exceptions silently, and never expose raw stack traces to end users.
+
+```javascript
+// ✅ Validated inputs + structured error logging
+if (!interaction.guild || !interaction.member) {
+    return interaction.reply({
+        content: "❌ Error: This command must be used in a server.",
+        flags: [MessageFlags.Ephemeral]
+    });
+}
+
+try {
+    // command logic
+} catch (error) {
+    console.error("Context:", error);
+    logError(client, error, "Description of what failed");
+}
+```
+
+### Discord.js Patterns
+
+```javascript
+// ✅ Import only what you need
+const {
+    SlashCommandBuilder,
+    EmbedBuilder,
+    PermissionFlagsBits
+} = require('discord.js');
+
+// ✅ Always validate permissions using PermissionFlagsBits
+if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.reply("❌ Insufficient permissions.");
+}
+```
+
+### Prisma ORM
+
+Define explicit field types and relations. Avoid using loose `Json` columns for structured data — create proper models with typed fields and indexes.
+
+```prisma
+// ✅ Well-defined model with indexes
+model Guild {
+    id            String        @id
+    name          String
+    settings      GuildSettings?
+    users         GuildUser[]
+    tickets       Ticket[]
+    createdAt     DateTime      @default(now())
+    updatedAt     DateTime      @updatedAt
+
+    @@index([id])
+}
+
+// ❌ Avoid loose JSON blobs
+model Guild {
+    id      String
+    data    Json
+}
+```
+
+### No Hardcoding
+
+All configurable values — channel IDs, role IDs, thresholds, tokens — belong in `config.js` sourced from `.env`. Never hardcode credentials or environment-specific values directly in source files.
+
+### Comments
+
+Document non-obvious logic with inline comments. Use JSDoc blocks for exported functions:
+
+```javascript
+/**
+ * @file tickets/handlers.js
+ * @description Handles ticket category creation and panel rendering.
+ */
+
+/**
+ * Generates an HTML transcript for a closed ticket.
+ * @param {import('discord.js').TextChannel} channel - The ticket channel.
+ * @returns {Promise<Buffer>} The rendered HTML file buffer.
+ */
+async function generateTranscript(channel) {
+    // ...
+}
+```
+
+## Branch Naming
+
+| Pattern | Purpose |
+|:--------|:--------|
+| `feature/description` | New features |
+| `fix/description` | Bug fixes |
+| `docs/description` | Documentation-only changes |
+| `refactor/description` | Code restructuring without behavior change |
+
+## Pull Request Checklist
+
+<Accordion title="PR Checklist — expand before submitting">
+  Before opening your PR for review, confirm all of the following:
+
+  - [ ] Code follows the style guidelines above (camelCase, 4-space indent, async/await)
+  - [ ] No hardcoded tokens, IDs, role IDs, or passwords anywhere in the diff
+  - [ ] `.env.example` updated if any new environment variables were introduced
+  - [ ] `prisma/schema.prisma` updated and `npx prisma db push` runs without errors if database schema was changed
+  - [ ] Commands work as expected in a test Discord server with appropriate permissions
+  - [ ] No regressions in existing commands (test common flows: tickets, warn, history, etc.)
+  - [ ] PR description clearly explains **what** changed and **why**
+  - [ ] Relevant documentation updated (inline comments, README section, or docs page)
+</Accordion>
+
+## Reporting Bugs
+
+<Steps>
+  <Step title="Check existing issues">
+    Search [GitHub Issues](https://github.com/Capinetta-RP/capinetta-discord-bot/issues) before opening a new one — your bug may already be tracked.
+  </Step>
+  <Step title="Reproduce on a separate branch">
+    Confirm the bug is reproducible in isolation, not caused by a local configuration problem.
+  </Step>
+  <Step title="Open a new issue with full details">
+    Include the following in your report:
+
+    - **Node.js version**: `node --version`
+    - **Database**: MariaDB/MySQL version
+    - **Discord.js version**: from `node_modules/discord.js/package.json`
+    - **OS**: e.g., Ubuntu 22.04, Windows 11
+    - **Error message and full stack trace**
+    - **Steps to reproduce** (numbered list)
+    - **Expected behavior** vs **actual behavior**
+    - **Logs** — paste relevant output from `pm2 logs` or console
+  </Step>
+</Steps>
+
+## Suggesting Features
+
+Open a [GitHub Discussion](https://github.com/Capinetta-RP/capinetta-discord-bot/discussions) for feature ideas rather than a GitHub Issue. In your discussion, include:
+
+- **Use case**: what problem does this solve for an RP community?
+- **Expected behavior**: how should it work from the user's perspective?
+- **Discord.js API references**: link relevant docs if the feature depends on a specific API
+- **Alternatives considered**: other approaches you thought about
+
+You can also join the [Capi Netta RP Discord server](https://discord.gg/tpxRFHugX7) to discuss ideas with the community before writing code.
+
+## Code Review Process
+
+1. The maintainer reviews the PR and may request changes or ask questions about design decisions.
+2. Once approved, the PR is merged into `main`.
+3. Changes are included in the next release and the `CHANGELOG.md` is updated.
+
+## License
+
+This project is licensed under the **MIT License** — see the [LICENSE file](https://github.com/Capinetta-RP/capinetta-discord-bot/blob/main/LICENSE.MD) for full terms. By submitting a contribution, you agree that your code will be released under the same MIT license.
+
+Attribution to the original Capi Netta RP project is appreciated but not required by the license terms.

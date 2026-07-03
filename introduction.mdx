@@ -1,0 +1,107 @@
+---
+title: "Capinetta RP Bot System: Multi-Bot Discord Management"
+sidebarTitle: "Introduction"
+description: "Capinetta RP is a self-hosted dual-bot system for FiveM Discord communities with anti-spam, tickets, whitelist, and a web dashboard backed by MariaDB."
+---
+
+Capinetta RP Bot System is a modular, self-hosted Discord management platform built specifically for FiveM and GTA Roleplay communities. It runs two independent bots — **Bot General** and **Bot Whitelist** — as separate PM2 processes, meaning each bot can be updated, restarted, or scaled without touching the other. Bot General handles everything from anti-spam enforcement and moderation to professional ticket management, welcome cards, and full audit logging. Bot Whitelist provides dedicated application management so your staff can approve or reject roleplay whitelist requests with a single command and a polished embed notification. Both bots share a single **MariaDB** database through **Prisma ORM**, giving you one authoritative data store for guild settings, user warnings, ticket history, and role backups — all queryable through a **web dashboard** protected by Discord OAuth2.
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install dependencies, initialize the database, deploy slash commands, and start both bots with PM2 in under 5 minutes.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration">
+    Full reference for every environment variable — tokens, database URL, OAuth2 credentials, Redis, HTTPS, alert thresholds, and cache TTLs.
+  </Card>
+  <Card title="Anti-Spam" icon="shield-halved" href="/features/anti-spam">
+    Automatic role isolation, bulk message deletion, and 7-day account-age enforcement against coordinated raids.
+  </Card>
+  <Card title="Ticket System" icon="ticket" href="/features/tickets">
+    Dynamic categories, claim/transfer/close flows, HTML transcripts, inactivity reminders, and KPI dashboards.
+  </Card>
+  <Card title="Web Dashboard" icon="chart-line" href="/features/dashboard">
+    Express + EJS dashboard with Discord OAuth2 login, Redis caching, real-time KPIs, and background cleanup jobs.
+  </Card>
+  <Card title="Whitelist Management" icon="clipboard-check" href="/features/whitelist">
+    Approve and reject roleplay applications with embed notifications sent directly to your results channel.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={3}>
+  <Card title="Dual-Bot Architecture" icon="robot">
+    Bot General and Bot Whitelist run as independent PM2 processes (`capinetta-general` / `capinetta-whitelist`), enabling zero-downtime restarts and isolated deployments.
+  </Card>
+  <Card title="Anti-Spam & Security" icon="ban">
+    Detects repeated messages, saves user roles to MariaDB, and moves offenders to an isolation zone. Executes `bulkDelete` to purge spam instantly. Auto-kicks accounts younger than 7 days.
+  </Card>
+  <Card title="Intelligent Moderation" icon="gavel">
+    `/warn` registers infractions with reason and timestamp. Three warnings trigger an automatic 10-minute timeout. `/unmute` restores the full role list from the database. `/kick` writes to Audit Logs.
+  </Card>
+  <Card title="Professional Ticket System" icon="headset">
+    Dynamic categories with per-role access, claim/transfer/close buttons, automatic HTML transcripts sent via DM, and two-stage inactivity reminders at 30 and 60 minutes.
+  </Card>
+  <Card title="Whitelist Management" icon="id-card">
+    `/aprobar` and `/rechazar` commands send styled embed notifications with applicant details to the configured results channel, streamlining staff review workflows.
+  </Card>
+  <Card title="Web Dashboard" icon="display">
+    Discord OAuth2 authentication, Redis-backed caching for user profiles and stats, real-time support KPIs, and background jobs for log cleanup (>30 days) and profile refresh.
+  </Card>
+  <Card title="Multi-Server Support" icon="server">
+    All settings, logs, and warnings are keyed by Guild ID in MariaDB, so a single deployment can serve multiple Discord communities with fully isolated configurations.
+  </Card>
+  <Card title="Full Audit Logging" icon="scroll">
+    Records message edits and deletions, role changes (consolidated with debounce to reduce noise), voice joins/leaves, bans, and member profile updates — all with timestamps and executor data.
+  </Card>
+  <Card title="Canvas Welcome Cards" icon="image">
+    Custom GTA-style welcome images generated with `canvas` on member join: circular avatar with neon glow, custom font, and server branding.
+  </Card>
+</CardGroup>
+
+## Tech Stack
+
+The system is built on a modern, production-proven Node.js stack:
+
+| Layer | Technology |
+|---|---|
+| Bot framework | Discord.js v14 (`^14.13.0`) |
+| Database ORM | Prisma v5 (`^5.10.0`) with MariaDB/MySQL 8.0+ |
+| Web dashboard | Express.js v4 with EJS templates |
+| Auth | Passport.js + Discord OAuth2 |
+| Caching | Redis via ioredis (falls back to in-memory) |
+| Process manager | PM2 (`ecosystem.config.js`) |
+| Image generation | Canvas v2 (`^2.11.2`) |
+| Transcripts | discord-html-transcripts (`^3.2.0`) |
+
+## Project Structure
+
+```
+capinetta-discord-bot/
+├── commands/
+│   ├── bot-general/        # Admin, moderation, utility slash commands
+│   └── bot-whitelist/      # Aprobar / Rechazar commands
+├── events/
+│   ├── bot-general/        # messageCreate (anti-spam), guildMemberAdd (welcome), audits
+│   └── bot-whitelist/      # ready, interactionCreate
+├── handlers/               # Dynamic command and event loaders
+├── utils/
+│   ├── database.js         # Prisma connection
+│   ├── dataHandler.js      # CRUD: guilds, users, warnings
+│   └── tickets/            # Isolated ticket module (controllers, handlers, views, db)
+├── web/
+│   ├── dashboard.js        # Express server + OAuth2
+│   └── views/              # EJS templates
+├── prisma/
+│   └── schema.prisma       # Database schema
+├── index-general.js        # Bot General entry point
+├── index-whitelist.js      # Bot Whitelist entry point
+├── ecosystem.config.js     # PM2 process configuration
+└── config.js               # Centralised runtime config
+```
+
+<Note>
+  Capinetta RP Bot System is released under the **MIT License** (Copyright © 2026 Capi Netta RP). It was designed for the [Capi Netta RP](https://www.capinettarp.com.ar) FiveM community, but is freely adaptable for any Discord server under the terms of the license — attribution to the original authors is appreciated. Source code is available at [github.com/Capinetta-RP/capinetta-discord-bot](https://github.com/Capinetta-RP/capinetta-discord-bot).
+</Note>

@@ -1,0 +1,149 @@
+---
+title: "Moderation Commands: Warnings, Kicks, and Unmute"
+sidebarTitle: "Moderation"
+description: "Manage server discipline with /warn (auto-timeout at 3), /kick with audit trail, /unmute with full DB role restore, /history for sanction records, and /clear for bulk delete."
+---
+
+The Capinetta RP moderation suite gives staff a consistent, database-backed set of tools for handling disciplinary actions. Every warn, kick, and isolation event is persisted to MariaDB — warnings are written to both the `warn_logs` table (for permanent audit history) and the `warns` table (for the running counter). Before a user is isolated, their full role list is saved so it can be atomically restored later with a single `/unmute` command. Because all records are tied to guild and user IDs, moderators can pull a complete sanction history for any user at any time using `/history`.
+
+---
+
+## `/warn @user [reason]`
+
+**Required permission:** `Moderate Members`
+
+Warns a user and increments their running warning counter. The warning is written to two separate database tables:
+
+- **`warnLog`** — immutable audit record containing `userId`, `moderatorId`, `reason`, `warnNumber`, and `timestamp`. Never deleted, even after a counter reset.
+- **`warn`** — mutable counter record per `guildId` + `userId` storing the current warn total.
+
+The response embed shows the current warn number out of 3.
+
+```
+/warn @username Spamming the general channel
+```
+
+**Escalation at 3 warnings:**
+
+When a user's warn count reaches **3**, the bot automatically applies a Discord timeout for the duration configured in `config.js`:
+
+```js
+// config.js
+general: {
+  warnTimeoutMinutes: 10,
+}
+```
+
+The timeout duration defaults to **10 minutes** and is passed directly to Discord's `member.timeout()` API. After the auto-timeout is applied, the warn counter resets to `0` so the next infraction starts fresh.
+
+**Validation rules enforced by the command:**
+- Cannot warn yourself (`user.id === interaction.user.id`)
+- Cannot warn bots (`user.bot`)
+- Reason must be ≤ 1000 characters
+- User must be present in the guild at the time of the command
+
+The warned user also receives a DM notification if their DMs are open.
+
+---
+
+## `/reset-warns @user`
+
+**Required permission:** Administrator
+
+Clears the running warn counter in the `warns` table back to `0` for the specified user in the current guild.
+
+```
+/reset-warns @username
+```
+
+<Note>
+  `/reset-warns` only clears the **counter** — it does not remove any entries from `warnLog`. All historical warn records are preserved permanently for audit purposes and remain visible via `/history`.
+</Note>
+
+---
+
+## `/history @user`
+
+**Required permission:** `Moderate Members`
+
+Queries the `warnLog` Prisma model for the specified user and returns an embed showing their last **10** sanction records, ordered from most recent to oldest.
+
+```
+/history @username
+```
+
+Each record in the embed displays:
+- Date of the warn
+- Warn number (e.g., `Warn #2`)
+- Moderator who issued it (as a mention)
+- Reason provided
+
+The embed is sent as an ephemeral reply visible only to the moderator who ran the command.
+
+---
+
+## `/unmute @user`
+
+**Required permission:** `Moderate Members`
+
+Lifts an isolation sanction and restores all roles the user had before they were muted. The command calls `getUserRoles(guildId, userId)` to fetch the JSON role ID array saved in the database during isolation, then applies `member.roles.set(savedRoles)` to restore them atomically.
+
+```
+/unmute @username
+```
+
+After a successful restore, `clearUserRoles(guildId, userId)` is called to remove the stale role snapshot from the database.
+
+If no saved roles are found (the user was not isolated by the bot or DB was cleared), an ephemeral warning is returned to the moderator instead of silently doing nothing.
+
+---
+
+## `/kick @user [reason]`
+
+**Required permission:** `Kick Members`
+
+Kicks the specified member with an optional reason. The reason is forwarded to Discord's native audit log via `member.kick(reason)`, and the action is also posted to the guild's configured logs channel via `sendLog`.
+
+```
+/kick @username Violating server rules
+```
+
+**Validation rules:**
+- Cannot kick yourself
+- Cannot kick non-kickable members (higher role or server owner)
+- Reason must be ≤ 1000 characters
+
+A structured log entry is also written via `structuredLogger` with `action: 'KICK'`, `userId`, `moderatorId`, `reason`, and `guildId` for dashboard visibility.
+
+---
+
+## `/clear [amount]`
+
+**Required permission:** `Manage Messages`
+
+Calls Discord's `bulkDelete` API to remove up to **100 messages** at once from the current channel.
+
+```
+/clear 50
+```
+
+<Warning>
+  Discord's API does not allow bulk-deleting messages older than **14 days**. Any messages in the selected range that are older than 14 days will be silently skipped by the API. For older messages, manual deletion is required.
+</Warning>
+
+---
+
+## Command Summary
+
+| Command | Permission Required | Description |
+|---------|-------------------|-------------|
+| `/warn @user [reason]` | Moderate Members | Records a warning; auto-timeout at 3 warns |
+| `/reset-warns @user` | Administrator | Clears the warn counter (audit log preserved) |
+| `/history @user` | Moderate Members | Shows last 10 sanction records from DB |
+| `/unmute @user` | Moderate Members | Restores all DB-saved roles, clears isolation |
+| `/kick @user [reason]` | Kick Members | Kicks member with reason + audit log entry |
+| `/clear [amount]` | Manage Messages | Bulk-deletes up to 100 messages |
+
+<Note>
+  For a complete listing of all slash commands including admin configuration and utility commands, see the [Command Reference](/reference/commands).
+</Note>

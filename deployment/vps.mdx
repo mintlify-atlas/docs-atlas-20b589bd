@@ -1,0 +1,150 @@
+---
+title: "Deploy Capinetta RP Bot on a Linux VPS"
+sidebarTitle: "VPS"
+description: "Deploy the bot system on any Linux VPS (DigitalOcean, Linode, Hetzner, etc.) running Ubuntu 22.04. Covers Node.js, MariaDB, PM2, Nginx reverse proxy, and SSL."
+---
+
+Any VPS running Ubuntu 20.04 or newer will work for hosting the Capinetta RP Bot System. A 1 vCPU / 2 GB RAM droplet (~$5/mo) is sufficient for small communities; 2 vCPU / 4 GB RAM is recommended for larger servers with heavier ticket and moderation activity. This guide is written for Ubuntu 22.04 LTS and has been tested on DigitalOcean, Linode, and Hetzner.
+
+<Steps>
+
+### Provision the Server
+
+Create a new VPS at your chosen provider, selecting:
+
+- **Image**: Ubuntu 22.04 LTS
+- **Size**: 1–2 vCPU, 2–4 GB RAM (minimum 1 GB)
+- **SSH Key**: Upload your public key during creation for passwordless access
+- **Hostname**: e.g., `capinetta-bot`
+
+### Initial Server Setup
+
+```bash
+# Connect as root
+ssh root@YOUR_SERVER_IP
+
+# Create a dedicated non-root user
+adduser capinetta
+usermod -aG sudo capinetta
+
+# Switch to the new user for all subsequent steps
+su - capinetta
+```
+
+### Install Node.js v20 and MariaDB
+
+```bash
+# Node.js v20 LTS
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs mariadb-server git
+
+# PM2 process manager (global)
+sudo npm install -g pm2
+
+# Verify
+node --version   # v20.x.x
+```
+
+### Configure MariaDB
+
+```bash
+# Run the interactive security wizard
+sudo mysql_secure_installation
+
+# Create the application database and user in one command
+sudo mysql -u root -e "
+  CREATE DATABASE capi_netta;
+  CREATE USER 'capi'@'localhost' IDENTIFIED BY 'strong_pass';
+  GRANT ALL PRIVILEGES ON capi_netta.* TO 'capi'@'localhost';
+  FLUSH PRIVILEGES;
+"
+
+# Enable MariaDB on boot
+sudo systemctl enable mariadb
+```
+
+### Clone, Configure, and Start
+
+```bash
+cd ~
+git clone https://github.com/Capinetta-RP/capinetta-discord-bot.git
+cd capinetta-discord-bot
+
+# Copy the example env file and fill in your values
+cp .env.example .env
+nano .env
+
+# Install dependencies (also generates Prisma client via postinstall)
+npm install
+
+# Push the schema to the database
+npx prisma db push
+
+# Deploy slash commands to Discord, then start both bots
+npm run deploy && npm run prod
+
+# Persist the process list across reboots
+pm2 startup && pm2 save
+```
+
+When you run `pm2 startup`, follow the printed instruction to register the init script with systemd (copy and run the `sudo env PATH=...` command it outputs).
+
+### Set Up Nginx Reverse Proxy
+
+Nginx lets you serve the dashboard on standard HTTP/HTTPS ports instead of `:3000`.
+
+```bash
+sudo apt install nginx -y
+sudo nano /etc/nginx/sites-available/capinetta
+```
+
+Paste the following server block, replacing `your-domain.com` with your actual domain or public IP:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass         http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection 'upgrade';
+        proxy_set_header   Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+Enable the site and reload Nginx:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/capinetta /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### SSL with Let's Encrypt
+
+```bash
+sudo apt install certbot python3-certbot-nginx -y
+sudo certbot --nginx -d your-domain.com
+```
+
+Certbot will automatically modify the Nginx config to handle HTTPS and set up auto-renewal. After this completes, update your `.env`:
+
+```bash
+DASHBOARD_CALLBACK_URL=https://your-domain.com/auth/discord/callback
+HTTPS_ENABLED=false   # Nginx handles TLS termination; the app stays on HTTP internally
+```
+
+Restart the bots to pick up the new callback URL:
+
+```bash
+pm2 restart all
+```
+
+</Steps>
+
+<Warning>
+  After enabling HTTPS, you **must** update the Discord OAuth2 redirect URI in the [Discord Developer Portal](https://discord.com/developers/applications). Navigate to your application → **OAuth2 → Redirects** and add `https://your-domain.com/auth/discord/callback`. Dashboard logins will fail with an `invalid_client` error until this is done.
+</Warning>

@@ -1,0 +1,108 @@
+---
+title: "FiveM Whitelist Application Management"
+sidebarTitle: "Whitelist"
+description: "Review FiveM RP whitelist applications directly in Discord. Approve or reject with branded embeds and automatic result notifications using the Whitelist Bot."
+---
+
+The Whitelist Bot is a dedicated, independent bot process (`index-whitelist.js`) that handles all GTA RP whitelist application decisions. Running separately from the General Bot keeps whitelist workflows isolated — staff review applications and post decisions without cluttering the main moderation bot's scope. Results are announced in a configured results channel via branded embeds: green for approvals, red for rejections. Every decision is persisted to the `whitelistLog` table with a unique constraint that prevents duplicate records per user and action type.
+
+The staff role allowed to run commands and the result channel are both configured through environment variables, requiring no code changes between server setups.
+
+---
+
+## Configuration
+
+The following environment variables must be set before starting the Whitelist Bot. See [Configuration](/configuration) for the full `.env` reference.
+
+<ParamField path="WHITELIST_TOKEN" type="string" required>
+  The bot token for the Whitelist Bot application in the Discord Developer Portal. Must be different from `GENERAL_TOKEN`.
+</ParamField>
+
+<ParamField path="WHITELIST_CLIENT_ID" type="string" required>
+  The application (client) ID of the Whitelist Bot, used when deploying slash commands.
+</ParamField>
+
+<ParamField path="WHITELIST_GUILD_ID" type="string" required>
+  The ID of the Discord guild where the Whitelist Bot is active and where slash commands are registered.
+</ParamField>
+
+<ParamField path="WHITELIST_STAFF_ROLE_ID" type="string" required>
+  The role ID whose members are authorized to run `/aprobar` and `/rechazar`. Users without this role receive an ephemeral permission error.
+</ParamField>
+
+<ParamField path="WHITELIST_CHANNEL_ID" type="string" required>
+  The channel ID where approval and rejection result embeds are posted. Should be a staff-visible or community-visible channel depending on your server's workflow.
+</ParamField>
+
+---
+
+## Commands
+
+### `/aprobar @user`
+
+**Required permission:** Holders of `WHITELIST_STAFF_ROLE_ID`
+
+Approves a whitelist application. The command fetches the results channel via `config.whitelist.channelId` and calls the shared `sendWhitelistEmbed` helper with a **green** color (`0x2ecc71`) and the status label `"aprobada"`.
+
+```
+/aprobar usuario:@username
+```
+
+**What happens:**
+1. A branded approval embed is posted to the configured `WHITELIST_CHANNEL_ID`. The embed includes the user's avatar, username, and a timestamp.
+2. A `whitelistLog` record is created (or updated via `upsert`) in the database with:
+   - `userId` and `userTag` of the approved user
+   - `moderatorId` and `moderatorTag` of the staff member who ran the command
+   - `action: "aprobado"`
+   - `note: "Aprobado mediante comando /aprobar"`
+3. An ephemeral confirmation is sent to the moderator: `✅ Whitelist de **username** aprobada.`
+
+### `/rechazar @user`
+
+**Required permission:** Holders of `WHITELIST_STAFF_ROLE_ID`
+
+Rejects a whitelist application and includes a link to the server rules so the applicant knows what to review before reapplying. The command posts a **red** embed (`0xe74c3c`) with the status label `"rechazada"` and appends the normativa URL from `config.whitelist.normativa`.
+
+```
+/rechazar usuario:@username
+```
+
+The normativa URL is hardcoded in `config.js` and points to the official server rules:
+
+```js
+// config.js
+whitelist: {
+  normativa: "https://bit.ly/4qti5GP",
+}
+```
+
+**What happens:**
+1. A rejection embed is posted to `WHITELIST_CHANNEL_ID` with the stated reason and a link to the normativa.
+2. A `whitelistLog` record is created (or updated) with `action: "rechazado"`.
+3. An ephemeral confirmation is sent to the moderator: `❌ Whitelist de **username** rechazada.`
+
+---
+
+## Audit Trail
+
+All whitelist decisions are stored in the `whitelistLog` table. Each record contains:
+
+| Field | Description |
+|-------|-------------|
+| `userId` | Discord ID of the applicant |
+| `userTag` | Discord tag at the time of the decision |
+| `moderatorId` | Discord ID of the staff member |
+| `moderatorTag` | Discord tag of the staff member |
+| `action` | Either `"aprobado"` or `"rechazado"` |
+| `note` | Automatic note identifying the command used |
+| `timestamp` | Prisma auto-generated creation timestamp |
+
+The table has a **unique constraint** on `(userId, action)`. This means running `/aprobar` twice for the same user does not create a duplicate row — the second call updates the existing record with the latest moderator and timestamp via Prisma's `upsert`.
+
+<Note>
+  The unique constraint on `(userId, action)` means each user can only have **one** `aprobado` record and one `rechazado` record at a time. Repeated decisions update the existing entry rather than stacking duplicates. This keeps the audit table clean while always reflecting the most recent decision.
+</Note>
+
+<Tip>
+  Keep the Whitelist Bot active in a **staff-only channel** for input commands so that `/aprobar` and `/rechazar` are not visible to regular members. The result embed posted to `WHITELIST_CHANNEL_ID` can be in a public or semi-public channel as your workflow requires.
+</Tip>

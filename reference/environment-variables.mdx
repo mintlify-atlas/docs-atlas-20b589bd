@@ -1,0 +1,231 @@
+---
+title: "Environment Variables Reference for Capinetta RP"
+sidebarTitle: "Environment Variables"
+description: "Full reference for every environment variable in .env.example: required bot tokens, database URL, OAuth2 credentials, Redis, HTTPS, alert thresholds, and cache TTLs."
+---
+
+All runtime configuration for the Capinetta RP Bot System is controlled through environment variables loaded from a `.env` file at startup. Copy `.env.example` to `.env` in the project root and populate every required value before running either bot or the web dashboard. The `config.js` module reads all variables, validates required ones, and exports them as structured objects used across the entire codebase.
+
+<Warning>
+  Required variables are validated at startup in `config.js`. If any required variable is missing or empty, the process exits immediately with a clear error listing the missing keys — **the bot will not start in a broken state**. Always verify your `.env` file before deploying to production.
+</Warning>
+
+---
+
+## Required Variables
+
+These eight variables must be present and non-empty. Omitting any one of them causes an immediate `process.exit(1)` with an error message listing which keys are missing.
+
+<ParamField path="GENERAL_TOKEN" type="string" required>
+  Discord bot token for the General Bot. Obtained from the [Discord Developer Portal](https://discord.com/developers/applications) under your application's **Bot** tab. Keep this value secret — it grants full control of the bot account.
+</ParamField>
+
+<ParamField path="WHITELIST_TOKEN" type="string" required>
+  Discord bot token for the Whitelist Bot. This is a separate bot application from the General Bot, requiring its own token from the Developer Portal.
+</ParamField>
+
+<ParamField path="GENERAL_CLIENT_ID" type="string" required>
+  OAuth2 Application Client ID for the General Bot. Found in the Developer Portal under **OAuth2 → General**. Used by the Express dashboard for Discord OAuth2 login flows via Passport.js.
+</ParamField>
+
+<ParamField path="GENERAL_CLIENT_SECRET" type="string" required>
+  OAuth2 Application Client Secret for the General Bot. Found alongside `GENERAL_CLIENT_ID` in the Developer Portal. Required for completing the OAuth2 authorization code exchange. Never expose this in client-side code or logs.
+</ParamField>
+
+<ParamField path="DASHBOARD_CALLBACK_URL" type="string" required>
+  Full OAuth2 redirect URI registered in the Discord Developer Portal under **OAuth2 → Redirects**. Must match exactly. Example: `http://localhost:3000/auth/discord/callback` for local development, or `https://dashboard.capinettarp.com.ar/auth/discord/callback` for production.
+</ParamField>
+
+<ParamField path="SESSION_SECRET" type="string" required>
+  A long, random, secret string used to sign Express session cookies. Generate a secure value with `openssl rand -base64 32` or a password manager. Rotating this value will invalidate all existing user sessions.
+</ParamField>
+
+<ParamField path="GENERAL_GUILD_ID" type="string" required>
+  The Discord snowflake ID of your main server (guild). Used for guild-scoped slash command registration and as the default guild for multi-guild lookups. Enable Developer Mode in Discord settings to copy IDs.
+</ParamField>
+
+<ParamField path="DATABASE_URL" type="string" required>
+  Full MariaDB/MySQL connection string in Prisma format. Example: `mysql://USER:PASSWORD@localhost:3306/capi_netta_rp`. This single URL is used by the Prisma client in both bot processes and the dashboard.
+</ParamField>
+
+---
+
+## Whitelist Bot Variables
+
+These variables configure the separate Whitelist Bot process (`index-whitelist.js`).
+
+<ParamField path="WHITELIST_CLIENT_ID" type="string">
+  Discord Application Client ID for the Whitelist Bot. Required to register the `/aprobar` and `/rechazar` slash commands via `deploy-whitelist.js`.
+</ParamField>
+
+<ParamField path="WHITELIST_GUILD_ID" type="string">
+  Discord guild ID where whitelist slash commands are registered. Can be the same as `GENERAL_GUILD_ID` or a separate staff-only server.
+</ParamField>
+
+<ParamField path="WHITELIST_STAFF_ROLE_ID" type="string">
+  Role ID whose members are authorised to run `/aprobar` and `/rechazar`. The Whitelist Bot checks membership in this role before executing whitelist actions.
+</ParamField>
+
+<ParamField path="WHITELIST_CHANNEL_ID" type="string">
+  Channel ID where whitelist result embeds (approvals and rejections) are posted by the Whitelist Bot.
+</ParamField>
+
+---
+
+## Database — Individual Variables (Optional)
+
+These variables are an alternative to `DATABASE_URL` for environments that construct the connection string programmatically.
+
+<ParamField path="DB_HOST" type="string" default="localhost">
+  MariaDB/MySQL server hostname.
+</ParamField>
+
+<ParamField path="DB_PORT" type="number" default="3306">
+  MariaDB/MySQL server port.
+</ParamField>
+
+<ParamField path="DB_USER" type="string">
+  Database user with read/write access to the bot database.
+</ParamField>
+
+<ParamField path="DB_PASS" type="string">
+  Password for the database user.
+</ParamField>
+
+<ParamField path="DB_NAME" type="string">
+  Name of the MariaDB database (e.g. `capi_netta_rp`).
+</ParamField>
+
+---
+
+## Redis (Optional)
+
+Redis is used as a distributed cache for the web dashboard — storing user profiles, server stats, and Discord metrics. If Redis is unavailable at startup, the system automatically falls back to in-process memory caching.
+
+<ParamField path="REDIS_HOST" type="string" default="localhost">
+  Hostname of the Redis server. For Docker deployments, use the service name (e.g. `redis`).
+</ParamField>
+
+<ParamField path="REDIS_PORT" type="number" default="6379">
+  Port the Redis server is listening on.
+</ParamField>
+
+<ParamField path="REDIS_PASSWORD" type="string">
+  Authentication password for Redis. Leave empty (or omit) if your Redis instance does not require a password — common in local or Docker development environments.
+</ParamField>
+
+---
+
+## HTTPS
+
+Controls whether the Express dashboard server starts with TLS. Recommended for any publicly accessible deployment.
+
+<ParamField path="HTTPS_ENABLED" type="boolean" default="false">
+  Set to `true` to start the Express server in HTTPS mode using the certificate and key at the paths below. When `false`, the server listens on plain HTTP.
+</ParamField>
+
+<ParamField path="SSL_KEY_PATH" type="string" default="./certs/key.pem">
+  File system path to the SSL/TLS private key file. For Let's Encrypt certificates this is typically the `privkey.pem` file.
+</ParamField>
+
+<ParamField path="SSL_CERT_PATH" type="string" default="./certs/cert.pem">
+  File system path to the SSL/TLS certificate file (full-chain recommended). For Let's Encrypt this is `fullchain.pem`.
+</ParamField>
+
+---
+
+## FiveM Integration
+
+<ParamField path="FIVEM_BASE_URL" type="string">
+  Base URL of your FiveM server's HTTP endpoint. Used to query `info.json` and `players.json` for server status widgets on the dashboard. Example: `http://your-fivem-server:10000`. Defaults to `null` — FiveM integration is disabled if unset.
+</ParamField>
+
+---
+
+## Webhooks
+
+<ParamField path="ALERTS_WEBHOOK_URL" type="string">
+  Discord webhook URL for the system monitoring alert notifier. When a monitoring threshold is breached (see below), an embed is posted to this webhook. Example: `https://discord.com/api/webhooks/ID/TOKEN`. Defaults to `null` — alerts are suppressed if unset.
+</ParamField>
+
+---
+
+## Monitoring Alert Thresholds
+
+These variables configure the thresholds at which the monitoring system fires an alert to `ALERTS_WEBHOOK_URL`. All values are parsed as integers via `parseInt()` in `config.js`, with the defaults shown below.
+
+<ParamField path="ALERT_ERROR_RATE" type="number" default="5">
+  HTTP error percentage (4xx/5xx responses as a share of total requests) that triggers an alert. Default: `5` (alert when ≥5% of requests return errors).
+</ParamField>
+
+<ParamField path="ALERT_CACHE_HIT_RATE" type="number" default="60">
+  Minimum acceptable Redis/memory cache hit rate percentage. Alert fires when the hit rate falls below this value. Default: `60` (alert when cache hit rate drops below 60%).
+</ParamField>
+
+<ParamField path="ALERT_SLOW_QUERIES" type="number" default="10">
+  Maximum number of slow database queries (queries exceeding a latency threshold) permitted before an alert is sent. Default: `10`.
+</ParamField>
+
+<ParamField path="ALERT_MEMORY_USAGE" type="number" default="85">
+  Maximum system memory usage percentage. Alert fires when RAM usage exceeds this value. Default: `85` (alert at ≥85% memory usage). Note: `.env.example` comments show `80%` but the actual default in `config.js` is `85`.
+</ParamField>
+
+<ParamField path="ALERT_DISCORD_RATE_LIMIT" type="number" default="5">
+  Maximum number of Discord API rate-limit responses (HTTP 429) before an alert is sent. Default: `5`.
+</ParamField>
+
+<ParamField path="ALERT_RESPONSE_TIME" type="number" default="1000">
+  Maximum acceptable average HTTP response time in milliseconds for the dashboard. Alert fires when the average exceeds this value. Default: `1000` (1 second).
+</ParamField>
+
+---
+
+## Cache TTL Configuration
+
+Fine-tune the in-memory and Redis cache behavior for the web dashboard. All values are in milliseconds and parsed via `parseInt()` with the defaults shown.
+
+<ParamField path="CACHE_USER_PROFILE_TTL" type="number" default="600000">
+  Time-to-live for cached Discord user profile data in milliseconds. Default: `600000` (10 minutes). After this duration, the next access triggers a fresh database lookup.
+</ParamField>
+
+<ParamField path="CACHE_USER_PROFILE_REFRESH" type="number" default="900000">
+  Interval at which the background job proactively refreshes user profile cache entries in milliseconds. Default: `900000` (15 minutes). Should be larger than `CACHE_USER_PROFILE_TTL`.
+</ParamField>
+
+<ParamField path="CACHE_USER_PROFILE_BATCH" type="number" default="50">
+  Number of user profiles refreshed per batch cycle during the background refresh job. Limits API and DB load per tick. Default: `50`.
+</ParamField>
+
+<ParamField path="CACHE_USER_PROFILE_MAX_SIZE" type="number" default="1000">
+  Maximum number of user profiles held in the in-process cache at any one time. Once reached, the least-recently-used entries are evicted. Default: `1000`.
+</ParamField>
+
+<ParamField path="CACHE_STATS_TTL" type="number" default="300000">
+  Time-to-live for the `/stats` and dashboard statistics cache in milliseconds. Default: `300000` (5 minutes).
+</ParamField>
+
+<ParamField path="CACHE_DISCORD_METRICS_TTL" type="number" default="45000">
+  Time-to-live for Discord-side metrics (member counts, online counts, etc.) in milliseconds. Default: `45000` (45 seconds). Kept short to reflect near-real-time server activity.
+</ParamField>
+
+<ParamField path="LOGS_CLEANUP_INTERVAL" type="number" default="86400000">
+  How often the background cleanup job runs to prune `activity_logs` entries older than the retention window (default: 30 days). Value is in milliseconds. Default: `86400000` (24 hours).
+</ParamField>
+
+---
+
+## Ticket Behavior
+
+Control inactivity reminders and the close-confirmation flow inside ticket channels.
+
+<ParamField path="TICKET_INACTIVITY_WARNING" type="number" default="1800000">
+  Delay in milliseconds after the last message in a ticket before the first inactivity reminder ping is sent to staff. Default: `1800000` (30 minutes).
+</ParamField>
+
+<ParamField path="TICKET_INACTIVITY_RETRY" type="number" default="3600000">
+  Delay in milliseconds after the first inactivity reminder before a second, final reminder is sent. Default: `3600000` (60 minutes). Tickets without activity after this second reminder are flagged for review.
+</ParamField>
+
+<ParamField path="TICKET_CLOSE_TIMEOUT" type="number" default="5000">
+  Duration in milliseconds that the close-confirmation button collector waits for a staff confirmation click before timing out and cancelling the close action. Default: `5000` (5 seconds).
+</ParamField>

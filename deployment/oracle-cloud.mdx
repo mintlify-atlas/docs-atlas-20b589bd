@@ -1,0 +1,161 @@
+---
+title: "Deploy Capinetta RP Bot on Oracle Cloud Free Tier"
+sidebarTitle: "Oracle Cloud"
+description: "Step-by-step guide to deploying the bot system on Oracle Cloud's Always Free Tier: 2 vCPU, 12GB RAM, 200GB storage — permanently free with no credit card charges."
+---
+
+Oracle Cloud's Always Free Tier provides up to 4 vCPU (Ampere ARM), 24 GB RAM, and 200 GB storage with **no time limit and no automatic billing** — making it the recommended production platform for Capinetta RP communities of any size. The `/stats` command inside Discord auto-detects Oracle Cloud and reports correct system metrics for the instance.
+
+<Steps>
+
+### Create an Oracle Cloud Account
+
+Sign up for a free account at [cloud.oracle.com](https://cloud.oracle.com). A credit card is required for identity verification only — you will not be charged for Always Free resources.
+
+### Create a Compute Instance
+
+Navigate to **Compute → Instances → Create Instance** in the Oracle Cloud Console and configure the instance as follows:
+
+```
+- Image:   Ubuntu 22.04 (Always Free eligible)
+- Shape:   Ampere A1 Compute (ARM) — up to 4 OCPUs, 24 GB RAM free
+- Storage: 200 GB boot volume
+- Network: Create new VCN
+- SSH Key: Generate and download your private key (.key file)
+```
+
+### Configure Firewall (Security Lists)
+
+First, open the required ports in the Oracle Cloud Console under **VCN → Security Lists → Add Ingress Rules**:
+
+```
+# Required ports:
+# TCP 22    — SSH (your IP or 0.0.0.0/0)
+# TCP 3000  — Dashboard (or 443 if using HTTPS behind Nginx)
+# TCP 3306  — MariaDB (internal only — bind to private IP, do not expose publicly)
+```
+
+Then configure the OS-level firewall on the instance itself:
+
+```bash
+sudo ufw allow 22
+sudo ufw allow 3000
+sudo ufw enable
+```
+
+### SSH to the Instance
+
+```bash
+chmod 600 ~/.ssh/oracle-key.key
+ssh -i ~/.ssh/oracle-key.key ubuntu@YOUR_PUBLIC_IP
+```
+
+Accept the host fingerprint on first connection. Replace `YOUR_PUBLIC_IP` with the public IP shown in the Oracle Cloud Console.
+
+### Install Dependencies
+
+```bash
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Node.js v20 LTS
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# MariaDB server and client
+sudo apt install -y mariadb-server mariadb-client
+
+# PM2 process manager (global)
+sudo npm install -g pm2
+
+# Git
+sudo apt install -y git
+
+# Verify versions
+node --version   # v20.x.x
+npm --version    # 10.x.x
+mysql --version
+```
+
+### Configure MariaDB
+
+```bash
+# Run the interactive security wizard
+sudo mysql_secure_installation
+
+# Create the application database and user
+sudo mysql -u root << EOF
+CREATE DATABASE capi_netta;
+CREATE USER 'capi'@'localhost' IDENTIFIED BY 'your_strong_password';
+GRANT ALL PRIVILEGES ON capi_netta.* TO 'capi'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+
+# Enable MariaDB to start on boot
+sudo systemctl enable mariadb
+sudo systemctl start mariadb
+```
+
+### Clone and Configure the Project
+
+```bash
+cd /opt
+sudo git clone https://github.com/Capinetta-RP/capinetta-discord-bot.git
+sudo chown -R ubuntu:ubuntu capinetta-discord-bot
+cd capinetta-discord-bot
+
+# Create your .env from the example template
+cp .env.example .env
+nano .env   # Fill in all required variables (tokens, DB credentials, OAuth2, etc.)
+```
+
+Key variables to set in `.env`:
+
+```bash
+GENERAL_TOKEN=your_general_bot_token
+WHITELIST_TOKEN=your_whitelist_bot_token
+DATABASE_URL="mysql://capi:your_strong_password@localhost:3306/capi_netta"
+GENERAL_CLIENT_ID=your_client_id
+GENERAL_CLIENT_SECRET=your_client_secret
+DASHBOARD_CALLBACK_URL=http://YOUR_PUBLIC_IP:3000/auth/discord/callback
+SESSION_SECRET=generate_a_long_random_string
+```
+
+### Initialize and Start the Bots
+
+```bash
+# Install dependencies (also runs prisma generate via postinstall)
+npm install
+
+# Push the Prisma schema to the database
+npx prisma db push
+
+# Deploy slash commands to Discord
+npm run deploy
+
+# Start both bots with PM2
+npm run prod
+
+# Configure PM2 to restart bots on server reboot
+pm2 startup
+pm2 save
+```
+
+After running `pm2 startup`, copy and run the command it prints (it will look like `sudo env PATH=... pm2 startup systemd -u ubuntu --hp /home/ubuntu`).
+
+</Steps>
+
+<Note>
+  The `/stats` command in Discord auto-detects Oracle Cloud and reports accurate system metrics (CPU, RAM, disk) for the Ampere A1 instance without any additional configuration.
+</Note>
+
+<Tip>
+  For a production-grade setup, install Nginx as a reverse proxy so the dashboard is served on ports 80 and 443 instead of 3000:
+
+  ```bash
+  sudo apt install nginx -y
+  sudo certbot --nginx -d your-domain.com
+  ```
+
+  Then update `DASHBOARD_CALLBACK_URL` in `.env` to `https://your-domain.com/auth/discord/callback` and run `pm2 restart all`.
+</Tip>

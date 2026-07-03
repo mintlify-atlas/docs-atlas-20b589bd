@@ -1,0 +1,199 @@
+---
+title: "Security Policy and Vulnerability Reporting"
+sidebarTitle: "Security"
+description: "How to responsibly disclose security vulnerabilities in Capinetta RP Bot System. Report privately via Discord — do not open public GitHub issues for security bugs."
+---
+
+The security of Discord communities running the Capinetta RP Bot System is a priority. This system handles sensitive data including Discord OAuth2 tokens, session cookies, moderation records, and server configuration. If you discover a vulnerability, please report it privately through one of the channels listed below — **never create a public GitHub issue for security bugs**, as that could expose the flaw to bad actors before a patch is available.
+
+## How to Report
+
+<CardGroup cols={2}>
+  <Card title="Discord DM (Preferred)" icon="discord">
+    Send a private DM to a maintainer in the [Capi Netta RP Discord server](https://discord.gg/tpxRFHugX7). This is the fastest way to reach the team confidentially.
+  </Card>
+  <Card title="GitHub Security Advisory" icon="shield">
+    Open a private [GitHub Security Advisory](https://github.com/Capinetta-RP/capinetta-discord-bot/security/advisories/new) directly in the repository. This keeps the report confidential until a patch is released.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Do **not** open a public GitHub Issue for security vulnerabilities. Public issues are indexed immediately and could expose the vulnerability to malicious actors before a fix is deployed.
+</Warning>
+
+## What to Include
+
+A clear and complete report helps the maintainers respond quickly. Please provide:
+
+- **Description** — a clear explanation of the vulnerability and where it exists in the codebase
+- **Steps to reproduce** — numbered steps to reliably trigger the issue
+- **Potential impact** — what could an attacker achieve? (e.g., data exposure, privilege escalation, session hijacking)
+- **Suggested fix** — optional, but always appreciated
+- **Credit preference** — let us know how you'd like to be credited in the changelog, or if you prefer to remain anonymous
+
+## Response Timeline
+
+| Stage | Timeframe |
+|:------|:----------|
+| Acknowledgment of your report | Within 48 hours |
+| Assessment and fix timeline communicated | Within 5 business days |
+| Patch developed and tested | 7–30 days depending on severity |
+| Coordinated disclosure published | After the patch is released |
+
+Verified security reports will be credited in `CHANGELOG.md` with your consent.
+
+## Scope
+
+### In Scope
+
+These categories are actively maintained and considered in scope for vulnerability reports:
+
+- **Authentication bypass** in the web dashboard (OAuth2 flow, session validation)
+- **Privilege escalation** via bot commands — e.g., accessing admin-only commands without the required Discord permission bits
+- **SQL injection or data exposure** through Prisma queries
+- **Session hijacking** or cookie security weaknesses
+- **Discord token or secret exposure** through logging, error messages, or API responses
+- **Missing permission checks** on sensitive slash commands (`/warn`, `/kick`, `/config`, etc.)
+- **Cross-site scripting (XSS)** in dashboard EJS templates
+
+### Out of Scope
+
+- Vulnerabilities in third-party dependencies — report those directly to the upstream project (e.g., via `npm audit`)
+- Issues that require physical access to the server machine
+- Social engineering attacks against community staff
+- Theoretical vulnerabilities with no practical exploit path
+
+## Security Features in the Codebase
+
+The following security controls are already implemented in the Capinetta RP Bot System. Understanding these helps you identify gaps or misconfigured deployments.
+
+<AccordionGroup>
+  <Accordion title="HTTP Security Headers (Helmet)">
+    The Express dashboard uses [Helmet.js](https://helmetjs.github.io/) (`^7.1.0`) to set secure HTTP headers on every response, including `X-Frame-Options`, `X-Content-Type-Options`, `Strict-Transport-Security`, and `Referrer-Policy`. This prevents clickjacking and MIME-type sniffing attacks.
+  </Accordion>
+
+  <Accordion title="Content Security Policy with Nonces">
+    The dashboard implements a per-request CSP nonce strategy. Each request generates a unique nonce injected into EJS templates, allowing inline scripts and styles to execute without requiring the insecure `unsafe-inline` directive. This significantly limits the impact of any XSS vulnerability.
+  </Accordion>
+
+  <Accordion title="Rate Limiting">
+    `express-rate-limit` (`^6.10.0`) is applied to dashboard routes to prevent brute-force attacks against the OAuth2 login flow and any authenticated API endpoints.
+  </Accordion>
+
+  <Accordion title="HTTPOnly Session Cookies">
+    Express sessions are configured with `HTTPOnly` cookies, meaning session tokens are inaccessible to JavaScript running in the browser. This blocks session theft via XSS even if a script injection were to occur.
+  </Accordion>
+
+  <Accordion title="Permission Validation on All Commands">
+    Every moderation and admin command checks both Discord's `PermissionFlagsBits` on the executing member **and** validates against Discord's Audit Logs before executing destructive actions. There is no client-side-only permission trust.
+
+    ```javascript
+    // ✅ Both permission bits AND audit logs are checked
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply("❌ Insufficient permissions.");
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Environment Variable Validation at Startup">
+    Required environment variables (bot tokens, database credentials, OAuth2 secrets) are validated when the process starts. If any critical variable is missing, the process exits immediately rather than starting with an incomplete configuration that could cause unpredictable behavior.
+  </Accordion>
+
+  <Accordion title="Input Validation via Discord.js Slash Commands">
+    Slash command option types are enforced by the Discord API itself — users cannot submit a `STRING` where a `USER` or `INTEGER` is expected. This eliminates an entire class of injection risks at the input boundary.
+  </Accordion>
+
+  <Accordion title="Prepared Queries via Prisma ORM">
+    All database queries use Prisma ORM (`^5.10.0`), which generates parameterized prepared statements. Raw SQL injection through user-supplied input is not possible through standard Prisma query methods.
+  </Accordion>
+</AccordionGroup>
+
+## Secrets and the `.env` File
+
+<Warning>
+  The `.env` file contains highly sensitive credentials including bot tokens, database passwords, and the OAuth2 client secret. It **must never be committed to version control**. It is listed in `.gitignore` — verify this with `git check-ignore .env` before every push.
+</Warning>
+
+**Incorrect — never do this:**
+
+```javascript
+// index.js — this exposes your secrets if pushed to GitHub
+const TOKEN = "your_bot_token_here_1234567890";
+const DB_PASSWORD = "mypassword123";
+```
+
+**Correct — always use environment variables:**
+
+```bash
+# .env (NOT committed — gitignored)
+BOT_TOKEN_GENERAL=your_bot_token_general_here
+BOT_TOKEN_WHITELIST=your_bot_token_whitelist_here
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_db_password
+DB_NAME=capi_netta
+DISCORD_CLIENT_ID=your_client_id
+DISCORD_CLIENT_SECRET=your_client_secret
+```
+
+```javascript
+// index.js — read from environment at runtime
+const TOKEN = process.env.BOT_TOKEN_GENERAL;
+const DB_PASSWORD = process.env.DB_PASSWORD;
+```
+
+Use `.env.example` (committed, no real values) to document which variables are required for other contributors.
+
+## Production Deployment Security Checklist
+
+Before deploying to a production server, verify:
+
+- [ ] `.env` is present with real credentials and **not** committed to the repository
+- [ ] `git check-ignore .env` confirms `.env` is gitignored
+- [ ] HTTPS is enabled on the dashboard (via Nginx/Apache reverse proxy + Let's Encrypt)
+- [ ] Dashboard port (default `3000`) is firewalled and not directly exposed to the public internet
+- [ ] MariaDB is configured with a non-root user with minimum required privileges
+- [ ] Automatic database backups are scheduled (e.g., via cron + `mysqldump`)
+- [ ] `NODE_ENV=production` is set in `.env`
+- [ ] PM2 is configured with automatic restart (`npm run prod`)
+- [ ] Log rotation is configured to prevent disk exhaustion
+
+## Dependency Auditing
+
+Run `npm audit` regularly to check for known CVEs in project dependencies:
+
+```bash
+# Check for vulnerabilities
+npm audit
+
+# Attempt automatic fixes (review changes carefully)
+npm audit fix
+
+# Report moderate-and-above severity issues
+npm audit --audit-level=moderate
+```
+
+**Policy**: Critical dependency vulnerabilities are patched immediately. Non-critical issues are addressed in the next scheduled release.
+
+## Audit Logging
+
+All sensitive actions performed through the bot are logged and stored for **90 days** (configurable via `config.js`). Logged events include:
+
+- Configuration changes via `/setup` and `/config`
+- Moderation actions (warns, kicks, bans, unmutes)
+- Ticket creation and closure (with transcripts)
+- Role assignments and removals
+- Dashboard access and configuration edits
+
+## Acknowledgements
+
+The team thanks the security community for responsible disclosure. All verified reports will be credited in `CHANGELOG.md` with the reporter's consent.
+
+**Useful references:**
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [Node.js Security Best Practices](https://nodejs.org/en/docs/guides/security/)
+- [Discord.js Security FAQ](https://discord.js.org/#/docs/discord.js/main/general/faq)
+
+---
+
+*Last updated: January 29, 2026*

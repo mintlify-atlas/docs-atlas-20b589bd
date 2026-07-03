@@ -1,47 +1,230 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with Capinetta RP Bot System"
+sidebarTitle: "Quickstart"
+description: "Install and configure both Discord bots, initialize MariaDB with Prisma, deploy slash commands, and start the system with PM2 in under 5 minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+This guide walks you through getting the complete Capinetta RP Bot System running from scratch: both bots online, all slash commands registered in your Discord server, and the MariaDB database fully initialized through Prisma. By the end you'll have `capinetta-general` and `capinetta-whitelist` running as managed PM2 processes and ready to accept the initial `/setup` wizard.
 
 ## Prerequisites
 
-Before you begin, you must have:
+Before you begin, make sure the following are available on your host machine:
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+- **Node.js v18+** — v20 LTS is recommended. Check with `node --version`.
+- **MariaDB or MySQL 8.0+** — running locally or reachable via a connection string.
+- **Two Discord bot tokens** — one for Bot General and one for Bot Whitelist. Create both at the [Discord Developer Portal](https://discord.com/developers/applications).
+- **PM2** installed globally — used to run both bots as persistent background processes:
+  ```bash
+  npm install -g pm2
+  ```
 
-## Get started
+---
+
+## Installation
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the Repository">
+    Download the source code and navigate into the project directory:
 
     ```bash
-    npm install your-package
+    git clone https://github.com/Capinetta-RP/capinetta-discord-bot.git
+    cd capinetta-discord-bot
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Configure Environment Variables">
+    Copy the example environment file and open it in your editor:
 
     ```bash
-    your-cli init
+    cp .env.example .env
+    ```
+
+    Fill in at minimum the following required variables (see [Configuration](/configuration) for the full reference):
+
+    ```env
+    # Bot tokens — from Discord Developer Portal → Bot → Reset Token
+    GENERAL_TOKEN=your_general_bot_token
+    WHITELIST_TOKEN=your_whitelist_bot_token
+
+    # OAuth2 — from Discord Developer Portal → OAuth2
+    GENERAL_CLIENT_ID=your_oauth2_client_id
+    GENERAL_CLIENT_SECRET=your_oauth2_client_secret
+    DASHBOARD_CALLBACK_URL=http://localhost:3000/auth/discord/callback
+    SESSION_SECRET=generate_a_secure_random_string_here
+
+    # Discord server ID
+    GENERAL_GUILD_ID=your_main_discord_server_id
+
+    # Database — MariaDB/MySQL connection string
+    DATABASE_URL="mysql://USER:PASSWORD@localhost:3306/DB_NAME"
+    ```
+
+    <Note>
+      All eight of these variables are validated at startup by `config.js`. If any are missing, the bot will log a fatal error listing the absent keys and exit immediately — it cannot start without them.
+    </Note>
+  </Step>
+
+  <Step title="Install Dependencies and Initialize the Database">
+    Install all Node.js packages, generate the Prisma client, and push the schema to your database:
+
+    ```bash
+    npm install
+    npx prisma generate
+    npx prisma db push
+    ```
+
+    <Note>
+      If `npx prisma db push` throws a connection error, your MariaDB service may not be running. Start it with:
+
+      ```bash
+      # Linux
+      sudo systemctl start mariadb
+
+      # macOS (Homebrew)
+      brew services start mariadb
+
+      # Windows
+      # Open services.msc, find "MySQL" or "MariaDB", and click Start
+      ```
+    </Note>
+  </Step>
+
+  <Step title="Deploy Slash Commands to Discord">
+    Register the slash commands for both bots. This sends command definitions to the Discord API for your configured guild:
+
+    ```bash
+    npm run deploy:general
+    npm run deploy:whitelist
+    ```
+
+    Both scripts print `✅ Comandos registrados exitosamente` on success. You can also run both at once:
+
+    ```bash
+    npm run deploy
+    ```
+
+    Commands can take up to a few seconds to propagate in Discord. If you type `/` in your server and don't see them immediately, wait a moment and retry.
+  </Step>
+
+  <Step title="Start in Production with PM2">
+    Launch both bots as persistent PM2 processes using the included `ecosystem.config.js`:
+
+    ```bash
+    npm run prod
+    ```
+
+    PM2 will start two processes — `capinetta-general` (runs `index-general.js`) and `capinetta-whitelist` (runs `index-whitelist.js`) — both with `NODE_ENV=production`. Watch for these confirmation lines in the output:
+
+    ```
+    ✅ Bot General iniciado correctamente
+    ✅ Bot Whitelist iniciado correctamente
+    ```
+
+    To check running processes at any time:
+
+    ```bash
+    pm2 status
+    pm2 logs capinetta-general
+    pm2 logs capinetta-whitelist
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
+  <Step title="Run Initial Setup in Discord">
+    With both bots online, run the interactive setup wizard inside any channel in your Discord server:
+
     ```
+    /setup
+    ```
+
+    The wizard guides you through:
+    - Setting the **welcome channel** (where Canvas welcome cards are posted on member join)
+    - Configuring the **isolation zone** (the restricted channel spam offenders are moved to)
+    - Defining the **verified role** given to members who pass the verification button check
+
+    Once setup is complete, your server is fully operational. You can inspect or update any setting at any time with `/config`.
   </Step>
 </Steps>
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  Use `npm start` during local development — it runs `index-general.js` directly and streams all logs to your terminal, making it easy to iterate quickly. Reserve `npm run prod` (PM2) for production deployments where you need automatic restarts, process supervision, and persistent log storage.
 </Tip>
+
+---
+
+## Troubleshooting
+
+<Accordion title="Cannot find module 'discord.js'">
+  Dependencies were not installed or the installation was interrupted. Run:
+
+  ```bash
+  npm install
+  ```
+
+  If the error persists, delete the `node_modules` folder and try again:
+
+  ```bash
+  rm -rf node_modules
+  npm install
+  ```
+</Accordion>
+
+<Accordion title="Connection refused (MariaDB / ECONNREFUSED)">
+  The MariaDB service is not running, or the credentials in `DATABASE_URL` are incorrect. First verify the service is active:
+
+  ```bash
+  # Linux
+  sudo systemctl status mariadb
+
+  # macOS
+  brew services list | grep mariadb
+
+  # Windows — check Services (services.msc) for MySQL/MariaDB
+  ```
+
+  Then confirm you can connect manually:
+
+  ```bash
+  mysql -u YOUR_USER -p -h localhost
+  ```
+
+  If the service is running but the connection still fails, double-check the host, port, username, and password in your `DATABASE_URL`.
+</Accordion>
+
+<Accordion title="Invalid token / TokenInvalid error">
+  The bot token in `.env` is incorrect, has extra whitespace, or has been regenerated since you last copied it.
+
+  1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and navigate to your application's **Bot** tab.
+  2. Click **Reset Token**, confirm, and copy the new token.
+  3. Paste it into `.env` as `GENERAL_TOKEN` or `WHITELIST_TOKEN` — ensure there are no leading or trailing spaces.
+  4. Restart the bot: `pm2 restart all` (or `npm start` for development).
+</Accordion>
+
+<Accordion title="Database does not exist">
+  Prisma cannot push the schema because the target database hasn't been created yet. Create it manually in the MariaDB shell, then rerun the push:
+
+  ```sql
+  CREATE DATABASE capi_netta;
+  EXIT;
+  ```
+
+  ```bash
+  npx prisma db push
+  ```
+
+  Make sure `DB_NAME` in your `DATABASE_URL` matches the database name you just created.
+</Accordion>
+
+<Accordion title="Bot is online but doesn't respond to slash commands">
+  The slash commands were not deployed, or they were deployed to a different guild ID. Redeploy and ensure `GENERAL_GUILD_ID` in `.env` matches your server's ID:
+
+  ```bash
+  npm run deploy:general
+  npm run deploy:whitelist
+  ```
+
+  Also verify that the bot has the **`applications.commands`** OAuth2 scope and **Administrator** (or at minimum **Send Messages** + **Use Slash Commands**) permissions in your server. You can reinvite it with:
+
+  ```
+  https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot+applications.commands
+  ```
+</Accordion>

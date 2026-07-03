@@ -1,0 +1,69 @@
+---
+title: "Deploying Capinetta RP Bot System to Production"
+sidebarTitle: "Overview"
+description: "Choose your deployment platform: Oracle Cloud free tier, a generic Linux VPS, or Docker Compose. All options support PM2 process management and Nginx reverse proxy."
+---
+
+The Capinetta RP Bot System can be deployed to production across three supported platforms. Regardless of which you choose, **PM2 is the recommended process manager** for running both bots (`capinetta-general` and `capinetta-whitelist`) as persistent, auto-restarting background services. Each platform guide walks you through Node.js setup, MariaDB configuration, slash command deployment, and optional Nginx + SSL hardening.
+
+<CardGroup cols={3}>
+  <Card title="Oracle Cloud" icon="cloud" href="/deployment/oracle-cloud">
+    **Always Free Tier** — 2–4 vCPU, 12–24 GB RAM, 200 GB storage. The recommended platform for production deployments with zero ongoing cost.
+  </Card>
+  <Card title="VPS" icon="server" href="/deployment/vps">
+    **Generic Linux VPS** — DigitalOcean, Linode, Hetzner, or any Ubuntu 22.04 provider. ~$5–10/mo for a small-to-medium community server.
+  </Card>
+  <Card title="Docker" icon="docker" href="/deployment/docker">
+    **Docker Compose** — Bundles the bots, MariaDB, and Redis in isolated containers. Ideal for local development, testing, and reproducible environments.
+  </Card>
+</CardGroup>
+
+## Platform Comparison
+
+| Platform | Cost | Resources | Recommended For |
+|----------|------|-----------|-----------------|
+| Oracle Cloud Free Tier | Free | 2 vCPU, 12 GB RAM, 200 GB | Production (small–medium communities) |
+| VPS (DigitalOcean/Linode) | ~$5–10/mo | 1–2 vCPU, 2–4 GB RAM | Production |
+| Docker Local | Free | Host-dependent | Development / Testing |
+
+## Prerequisites for All Platforms
+
+Before following any platform-specific guide, ensure your server or local machine meets these baseline requirements:
+
+- **Node.js v18+** — v20 LTS is recommended (`node --version` to verify)
+- **MariaDB / MySQL 8.0+** — used by Prisma ORM for all persistent data
+- **PM2** globally installed:
+  ```bash
+  npm install -g pm2
+  ```
+- **Git** — for cloning the repository:
+  ```bash
+  sudo apt install -y git   # Ubuntu/Debian
+  ```
+
+## Common Post-Deploy Steps
+
+After completing the platform-specific setup, these steps apply universally:
+
+1. **Nginx reverse proxy** — expose the dashboard (port 3000) on port 80/443:
+   ```bash
+   sudo apt install nginx -y
+   # Configure a server block that proxies to http://localhost:3000
+   ```
+
+2. **SSL/TLS with Let's Encrypt** — secure your dashboard with a free certificate:
+   ```bash
+   sudo apt install certbot python3-certbot-nginx -y
+   sudo certbot --nginx -d your-domain.com
+   ```
+   After adding HTTPS, update `DASHBOARD_CALLBACK_URL` in `.env` to use `https://`.
+
+3. **Enable PM2 startup on boot** — so both bots restart automatically after a server reboot:
+   ```bash
+   pm2 startup       # Follow the printed instruction to register the init script
+   pm2 save          # Persist the current process list
+   ```
+
+<Tip>
+  Oracle Cloud's **Always Free Tier** is a genuine permanent free option — not a trial. It provides enough resources to run both bots, the dashboard, and MariaDB with headroom to spare. If you don't already have a preferred VPS provider, start here.
+</Tip>

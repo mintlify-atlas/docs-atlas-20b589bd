@@ -1,0 +1,199 @@
+---
+title: "Web Dashboard: Real-Time Monitoring and Administration"
+sidebarTitle: "Dashboard"
+description: "The Express-based web dashboard provides Discord OAuth2 authentication, Redis-cached KPIs, live system metrics, ticket management views, and configurable alert thresholds."
+---
+
+The Capinetta RP web dashboard is an Express.js application defined in `web/dashboard.js` that runs alongside the bot process. It is served on port `3000` by default (overridden via the `PORT` environment variable) and provides authenticated staff members with real-time system metrics, ticket browsing with HTML transcript viewing, warning management, per-guild configuration editing via SelectMenus, and a full activity audit log. Security is enforced through Helmet HTTP headers, nonce-based Content Security Policy, rate limiting on all routes, HTTPOnly session cookies, and gzip compression. Sessions can be stored in Redis for multi-process resilience or fall back to an in-memory store if Redis is not configured.
+
+---
+
+## Accessing the Dashboard
+
+- **Default URL:** `http://your-server-ip:3000`
+- **Login entry point:** `GET /auth/discord`
+- **OAuth2 scopes requested:** `identify`, `guilds`
+
+After authenticating, the session is validated against the live Discord guild. Users not present in the configured guild (`GENERAL_GUILD_ID`) are denied access, regardless of whether they authenticated successfully with Discord.
+
+<Warning>
+  The value of `DASHBOARD_CALLBACK_URL` must **exactly match** the redirect URI configured in the Discord Developer Portal under your bot's OAuth2 settings (including trailing slashes, port numbers, and protocol). A mismatch causes OAuth2 to fail silently with a redirect error.
+</Warning>
+
+---
+
+## Authentication Flow
+
+<Steps>
+  <Step title="Visit the dashboard URL">
+    Navigate to `http://your-server-ip:3000`. Unauthenticated users are redirected to the login page.
+  </Step>
+  <Step title="Initiate Discord OAuth2">
+    Click the login button. The browser is redirected to `GET /auth/discord`, which sends the user to Discord's authorization page requesting the `identify` and `guilds` scopes.
+  </Step>
+  <Step title="Discord redirects back">
+    After the user grants permission, Discord redirects to `DASHBOARD_CALLBACK_URL` (the `/auth/discord/callback` route). Passport.js validates the OAuth2 code and retrieves the user profile.
+  </Step>
+  <Step title="Guild membership check">
+    The Passport strategy verifies the user's profile contains the guild matching `config.general.guildId`. If the guild is not found in `profile.guilds`, authentication is rejected and no session is created.
+  </Step>
+  <Step title="Session created">
+    A session is created and stored in Redis (if `REDIS_HOST` is set) or the in-memory MemoryStore. The session cookie `capi-dashboard.sid` is set as `httpOnly`, `sameSite: 'lax'`, and `secure: true` in production. Sessions expire after **12 hours**.
+  </Step>
+  <Step title="Role-based access on protected routes">
+    The `checkAuth` middleware is applied to all protected routes. It validates the active session and checks the user's Discord guild roles against the required staff role before rendering any view or returning any API data.
+  </Step>
+</Steps>
+
+---
+
+## Dashboard Sections
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="chart-line">
+    Live stats snapshot: total tickets, open tickets, member count, bot uptime, and Discord API latency. Data is cached via Redis with a 5-minute TTL.
+  </Card>
+  <Card title="Tickets" icon="ticket">
+    Browse all tickets across the guild. Filter by status (`open`, `closed`, `claimed`) or category. Click any row to view the full HTML transcript via the authenticated viewer.
+  </Card>
+  <Card title="Warns Management" icon="triangle-exclamation">
+    View all warning records per user. See warn counts, full `warnLog` history, and top-warned users ranked by infraction count. Supports per-guild filtering.
+  </Card>
+  <Card title="Guild Config" icon="gear">
+    Edit guild settings (channels, roles, feature toggles) using interactive SelectMenus. Changes persist to the database immediately — no bot restart required.
+  </Card>
+  <Card title="Metrics" icon="server">
+    System health: CPU usage, RAM consumption, disk availability, MariaDB query latency, Redis cache hit rate, key count, Discord API rate limit counters, and average HTTP response time.
+  </Card>
+  <Card title="Activity Logs" icon="list">
+    Full audit trail: message edits and deletions, role changes, bans, member joins, and voice activity events. Filterable by log level, search term, date range, and guild ID. Exportable to CSV.
+  </Card>
+</CardGroup>
+
+---
+
+## API Endpoints
+
+All API endpoints require an authenticated session (enforced by the `checkAuth` middleware). Unauthenticated requests receive a `401` or are redirected to the login page.
+
+A stricter rate limit applies to all `/api/*` routes: **30 requests per minute per IP** (compared to 200 requests per 15 minutes for general routes).
+
+<AccordionGroup>
+  <Accordion title="GET /api/metrics">
+    Returns a snapshot of current system metrics including CPU, RAM, uptime, Redis status and key count, Discord guild count, unique user count, and any active `HIGH` severity alerts.
+
+    Also records a sample to the in-memory metrics history for the `/api/metrics/history` endpoint.
+
+    ```json
+    {
+      "cpu": 12.4,
+      "ram": { "used": 512, "total": 2048 },
+      "uptime": 86400,
+      "redis": { "status": true, "keys": 142 },
+      "discord": { "guilds": 1, "users": 847 },
+      "alerts": []
+    }
+    ```
+  </Accordion>
+  <Accordion title="GET /api/metrics/history">
+    Returns historical metric samples for the last N hours (default: 24). Pass `?hours=6` to narrow the range.
+
+    Used by the dashboard's time-series charts to render CPU, RAM, and response time trends.
+  </Accordion>
+  <Accordion title="GET /api/logs">
+    Returns the last 100 lines from the most recent structured log file, parsed as JSON objects. Lines that cannot be parsed or are plain HTTP request logs are filtered out.
+  </Accordion>
+  <Accordion title="GET /api/logs/search">
+    Filtered log search with query parameters: `level`, `search`, `startDate`, `endDate`, `guildId`, `page`, `limit`. Returns paginated results.
+  </Accordion>
+  <Accordion title="GET /api/logs/export">
+    Exports filtered logs as a downloadable CSV file. Accepts the same filter params as `/api/logs/search`. Returns `Content-Disposition: attachment`.
+  </Accordion>
+  <Accordion title="GET /api/guild/:guildId/stats">
+    Returns aggregated stats for a specific guild (total warns, open tickets, member activity). The requesting user must have admin access to the specified guild.
+  </Accordion>
+  <Accordion title="GET /api/guild/:guildId/top-warned">
+    Returns the top N users by warn count in a guild. Accepts `?limit=10`. Used by the Warns Management section.
+  </Accordion>
+  <Accordion title="GET /api/guild/:guildId/tickets-status">
+    Returns ticket counts grouped by status (`open`, `closed`, `pending`) for a guild. Used by the Overview and Tickets sections.
+  </Accordion>
+  <Accordion title="GET /auth/discord">
+    Initiates the Discord OAuth2 authorization flow. Redirects the user to Discord's authorization page.
+  </Accordion>
+  <Accordion title="GET /auth/discord/callback">
+    OAuth2 callback handler. Validates the authorization code, creates the session, and redirects to the dashboard. Must match `DASHBOARD_CALLBACK_URL` exactly.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Security Features
+
+| Feature | Implementation |
+|---------|---------------|
+| **Helmet** | HTTP security headers on every response (X-Frame-Options, HSTS, X-Content-Type-Options, etc.) |
+| **CSP with nonces** | Content Security Policy applied via `configureCSP()` middleware; unique token per request, no `unsafe-inline` |
+| **Rate limiting** | `express-rate-limit`: 200 req/15 min globally, 30 req/min on `/api/*` |
+| **HTTPOnly cookies** | Session cookie `capi-dashboard.sid` is inaccessible to JavaScript (`httpOnly: true`) |
+| **Secure cookies** | `secure: true` in production — cookies only sent over HTTPS |
+| **Trust proxy** | `app.set('trust proxy', 1)` for correct IP resolution behind Nginx/Cloudflare |
+| **gzip compression** | `compression` middleware reduces response payload size |
+
+---
+
+## Redis Caching
+
+Redis is used to cache frequently-accessed data and reduce database load. All TTL values are configurable through environment variables:
+
+| Cache | Env Variable | Default |
+|-------|-------------|---------|
+| User profiles | `CACHE_USER_PROFILE_TTL` | 10 minutes |
+| Stats/overview | `CACHE_STATS_TTL` | 5 minutes |
+| Discord metrics | `CACHE_DISCORD_METRICS_TTL` | 45 seconds |
+
+```js
+// config.js
+cache: {
+  userProfileTTLMs:        10 * 60 * 1000,  // 10 minutes
+  statsTTLMs:               5 * 60 * 1000,  // 5 minutes
+  discordMetricsTTLMs:          45 * 1000,  // 45 seconds
+}
+```
+
+If `REDIS_HOST` is not set in `.env`, the dashboard automatically falls back to an in-memory `MemoryStore` with a console warning. The bot functions correctly in this mode, but session data is lost on restart and cannot be shared across multiple processes.
+
+---
+
+## Background Jobs
+
+Two background jobs run on intervals after `startDashboard()` is called:
+
+<AccordionGroup>
+  <Accordion title="Log Cleanup">
+    Calls `cleanupOldLogs()` on the interval defined by `LOGS_CLEANUP_INTERVAL` (default: every **24 hours**). Removes `activityLog` records older than the retention window set in `LOGS_RETENTION_DAYS` (default: **30 days**).
+
+    ```js
+    // config.js
+    cache: {
+      logsCleanupIntervalMs: 24 * 60 * 60 * 1000,  // 1 day
+    }
+    logs: {
+      retentionDays: 30,
+    }
+    ```
+  </Accordion>
+  <Accordion title="User Profile Refresh">
+    Calls `refreshStaleUserProfiles(discordClient)` on the interval set in `CACHE_USER_PROFILE_REFRESH` (default: every **15 minutes**). Processes up to `CACHE_USER_PROFILE_BATCH` users per run (default: **50**) to avoid Discord API rate limits.
+  </Accordion>
+  <Accordion title="Metrics History Collection">
+    Calls `metricsHistory.recordSample(current)` every **30 seconds** to populate the time-series data used by the metrics chart.
+  </Accordion>
+  <Accordion title="Automated Alert Delivery">
+    If `ALERTS_WEBHOOK_URL` is configured, the bot sends any active `HIGH` severity alerts to the webhook every **5 minutes** using Discord's webhook API.
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  Use **Nginx** as a reverse proxy to expose the dashboard on port 80 or 443 instead of directly on port 3000. Set `HTTPS_ENABLED=true` and provide SSL certificate paths via `SSL_KEY_PATH` and `SSL_CERT_PATH` for direct HTTPS termination, or let Nginx handle TLS termination and proxy HTTP to `localhost:3000`. The [Deployment Guide](/deployment) includes a ready-to-use Nginx configuration.
+</Tip>

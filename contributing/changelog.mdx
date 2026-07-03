@@ -1,0 +1,174 @@
+---
+title: "Changelog: Capinetta RP Bot System Version History"
+sidebarTitle: "Changelog"
+description: "Version history for the Capinetta RP Bot System. Tracks new features, improvements, bug fixes, and breaking changes for each release."
+---
+
+This changelog tracks all significant changes to the Capinetta RP Bot System, following the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format and [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Each entry documents new features, technical changes, bug fixes, and any migration steps required when upgrading.
+
+---
+
+## [1.0.0] — January 30, 2026
+
+The initial public release of the Capinetta RP Bot System — a modular, dual-bot Discord management platform built for FiveM/GTA Roleplay communities. This release covers the full feature set of the Bot General and Bot Whitelist, the Express web dashboard, and all supporting infrastructure.
+
+### Added
+
+#### Ticket System
+
+- Dynamic ticket category management via `/ticket add`, `/ticket edit`, `/ticket remove`
+- Interactive ticket creation panel (`/ticket panel`) using Discord select menus — users pick a category and a private channel is created automatically
+- Per-category role assignment with support for multiple roles per category (`/ticket addrole`)
+- Ticket management actions via in-channel buttons: **Claim**, **Transfer** (with user select menu and confirmation), and **Close**
+- Automatic HTML transcript generation on ticket close using `discord-html-transcripts` — sent to the user via DM and archived to the configured logs channel
+- Dashboard transcript viewer: staff can view full chat transcripts directly from the web panel — stored locally and accessible only to authenticated staff
+- User avatars and display names in the dashboard ticket table — replacing raw Discord user IDs for better readability
+- Configurable log channel for transcript archiving (`/ticket setlogs`)
+- KPI and support metrics dashboard (`/ticket metrics`): average resolution time by category, ticket volume by period, staff productivity rankings
+- Inactivity reminder system: first ping at 30 minutes, second ping at 60 minutes if still unresolved
+
+#### Security and Anti-Spam
+
+- Automatic isolation for users who send 10 or more simultaneous mentions — roles are saved to MariaDB by `GuildId` and the user is moved to a restricted zone
+- `bulkDelete` auto-cleanup: spam messages are purged instantly upon detection
+- Account age validation: accounts younger than 7 days are automatically expelled to prevent organized raid attacks
+- Button-based verification system with a 1-minute cooldown to prevent automated role acquisition during raids
+
+#### Moderation
+
+- `/warn` command: records infractions with reason and timestamp; at the 3rd warning, applies an automatic 10-minute timeout and logs the event
+- `/reset-warns` command: clears the warning counter for a user (history is preserved in `/history`)
+- `/history` command: displays the full sanction history for any user — warns, kicks, and bans with timestamps
+- `/unmute` command: restores all roles stored in the database prior to a sanction
+- `/kick` command with reason tracking and Discord Audit Log integration
+- `/clear` command for bulk message deletion
+
+#### Whitelist System
+
+- `/aprobar` command: approves a whitelist application and sends a custom embed to the configured results channel
+- `/rechazar` command: rejects an application with a reason and normative message
+
+#### Monitoring and Utility
+
+- `/stats` command: real-time server monitoring — RAM usage, CPU load, bot uptime, disk storage, and MariaDB connection latency. Detects hosting platform (Oracle Cloud, AWS, etc.) automatically
+- `/ping` command: measures bot-to-Discord and bot-to-MariaDB latency
+- Canvas-based welcome cards: custom GTA-style welcome images generated with `canvas` (`^2.11.2`) — includes circular avatar with neon ring, server name, and member count
+- Consolidated role-change audit logs using a debounce strategy — multiple role events within a session are combined into a single log entry
+
+#### Web Dashboard
+
+- Express server (`^4.18.2`) with Discord OAuth2 authentication via Passport.js (`passport-discord-auth`)
+- Role-based access control: only Discord users with admin roles in the guild can view or modify server configuration
+- Dynamic configuration panels using EJS templates with select menus and input fields
+- Background jobs: automatic cleanup of logs older than 30 days, periodic user profile updates
+- Redis caching (`ioredis ^5.9.2`, `connect-redis`) for user data, stats, and metrics
+- Ticket transcript viewer accessible to authenticated staff only
+
+#### Audit Logging
+
+- Logs for: edited messages, deleted messages, bulk deletes, member joins, member leaves, role changes, bans, voice state updates, and user profile changes
+- All audit log events include the executor, timestamp, and relevant before/after values
+- Logs retained for 90 days (configurable)
+
+### Technical Changes
+
+- **ORM**: Prisma `^5.10.0` with MariaDB provider — strongly typed queries, no raw SQL
+- **Schema**: Optimized `prisma/schema.prisma` with explicit indexes on `Guild`, `GuildUser`, `Warning`, and `Ticket` models
+- **Auth**: Passport.js Discord OAuth2 strategy with HTTPOnly session cookies
+- **Security**: Helmet.js for HTTP headers, per-request CSP nonces, `express-rate-limit` on dashboard routes
+- **Process management**: PM2 `ecosystem.config.js` with automatic restart and clustering support
+- **Asset pipeline**: CSS and JS minification scripts (`npm run minify`)
+- **Deploy scripts**: Separate slash command deployment for Bot General (`npm run deploy:general`) and Bot Whitelist (`npm run deploy:whitelist`)
+
+### Documentation
+
+- `README.md` fully rewritten with architecture diagrams, full command reference tables, and deployment options
+- `CONTRIBUTING.md` with code standards, commit conventions, and PR process
+- `SECURITY.md` with responsible disclosure policy
+- `CHANGELOG.md` established (this file)
+- `.env.example` with all required variables documented
+
+### Fixed
+
+- False positives in spam detection logic for messages with repeated words
+- Race conditions in role-assignment events during high-traffic onboarding
+- Memory leaks in long-running event listeners on `guildMemberUpdate`
+- Edge case crash in `bulkDelete` when the message count was 0
+
+### Dependencies (v1.0.0)
+
+```json
+{
+  "discord.js": "^14.13.0",
+  "@prisma/client": "^5.10.0",
+  "express": "^4.18.2",
+  "canvas": "^2.11.2",
+  "passport": "^0.7.0",
+  "passport-discord-auth": "^1.2.0",
+  "helmet": "^7.1.0",
+  "express-rate-limit": "^6.10.0",
+  "express-session": "^1.18.0",
+  "discord-html-transcripts": "^3.2.0",
+  "ioredis": "^5.9.2",
+  "connect-redis": "^7.1.0",
+  "ejs": "^3.1.9",
+  "dotenv": "^16.3.1",
+  "compression": "^1.8.1"
+}
+```
+
+### Migration Notes for v1.0.0
+
+<Note>
+  If you are setting up the system for the first time or migrating from a pre-release version, run the following sequence to ensure your database schema is up to date:
+
+  ```bash
+  # 1. Clone the repository
+  git clone https://github.com/Capinetta-RP/capinetta-discord-bot.git
+  cd capinetta-discord-bot
+
+  # 2. Install all dependencies (also runs prisma generate via postinstall)
+  npm install
+
+  # 3. Copy and configure your environment variables
+  cp .env.example .env
+  # Edit .env with your bot tokens, DB credentials, and OAuth2 secrets
+
+  # 4. Push the Prisma schema to your database
+  npx prisma db push
+
+  # 5. Deploy slash commands to Discord
+  npm run deploy
+
+  # 6. Start the bots with PM2
+  npm run prod
+  ```
+
+  The `npx prisma db push` step is required to create the `Ticket` table columns that store user display names and avatars (replacing the previous raw ID storage).
+</Note>
+
+---
+
+## Upcoming Features
+
+The following are planned for future releases. Track progress in [GitHub Issues](https://github.com/Capinetta-RP/capinetta-discord-bot/issues) and [Discussions](https://github.com/Capinetta-RP/capinetta-discord-bot/discussions).
+
+**In Development**
+- Dashboard charts and graphs powered by Chart.js
+- Automatic role assignment workflows
+- Twitch/YouTube stream notification integration
+- Docker Compose configuration for simplified deployment
+- Automatic database backup system
+
+**Planned**
+- Experience and leveling system
+- Custom server event automation
+- REST API for third-party integrations
+- Two-factor authentication support for the web dashboard
+- Improved web panel with real-time updates
+
+---
+
+<Note>
+  For a full list of tagged releases, changenotes, and downloadable assets, visit the [GitHub Releases page](https://github.com/Capinetta-RP/capinetta-discord-bot/releases).
+</Note>

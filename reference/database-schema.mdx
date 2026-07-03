@@ -1,0 +1,358 @@
+---
+title: "Database Schema Reference: Prisma Models"
+sidebarTitle: "Database Schema"
+description: "Prisma ORM schema for MariaDB: GuildSettings, Warn, WarnLog, Ticket, TicketCategory, TicketAction, WhitelistLog, ActivityLog, User, and SystemError models."
+---
+
+The database schema is defined in `prisma/schema.prisma` and managed via Prisma ORM targeting a MariaDB (MySQL-compatible) backend. The datasource provider is set to `mysql` and reads the connection string from the `DATABASE_URL` environment variable. To apply the schema in a development environment run `npx prisma db push`; for production deployments with tracked migrations use `npx prisma migrate deploy`.
+
+<Warning>
+  Use `npx prisma db push` during development for rapid iteration — it applies schema changes directly without creating migration files. In production, always use `npx prisma migrate deploy` with versioned migration files to avoid untracked schema drift and potential data loss.
+</Warning>
+
+<Tip>
+  Run `npx prisma studio` during development to open a visual browser-based GUI for inspecting and editing rows in every table. This is significantly faster than writing raw SQL queries when debugging ticket or warn data.
+</Tip>
+
+---
+
+## GuildSettings
+
+**Table:** `guild_settings`
+
+Stores the per-guild configuration populated by `/setup` and kept up-to-date via `/config`. Every guild that runs `/setup` gets exactly one row keyed on its Discord guild ID.
+
+```prisma
+model GuildSettings {
+  guildId           String  @id @map("guildId")
+  logsChannel       String?
+  debugChannel      String?
+  verifyChannel     String?
+  welcomeChannel    String?
+  supportChannel    String?
+  roleUser          String?
+  roleNoVerify      String?
+  roleMuted         String?
+  staffRoles        String? // JSON array of staff role IDs
+  ticketLogsChannel String?
+  ticketPanelChannel String?
+  ticketPanelMessage String?
+  isSetup           Boolean @default(false)
+
+  @@map("guild_settings")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `guildId` | `String` (PK) | Discord guild/server ID. Primary key — one row per server. |
+| `logsChannel` | `String?` | Channel ID where audit log embeds (member joins, edits, bans, role changes) are sent. |
+| `debugChannel` | `String?` | Channel ID where bot errors and debug output are posted. Redirectable via `/set-debug`. |
+| `verifyChannel` | `String?` | Channel ID where the verification button panel (posted by `/set-verify`) lives. |
+| `welcomeChannel` | `String?` | Channel ID for Canvas welcome card images sent on `guildMemberAdd`. |
+| `supportChannel` | `String?` | Channel ID for the informational support/rules message posted by `/set-support`. Also used as the isolation zone for spam offenders. |
+| `roleUser` | `String?` | Role ID granted to a member after successful verification. |
+| `roleNoVerify` | `String?` | Role ID assigned to unverified members when they first join. |
+| `roleMuted` | `String?` | Role ID for muted/isolated users (spam offenders, manual mutes). |
+| `staffRoles` | `String?` | JSON-serialised array of role IDs considered staff (e.g. `["123", "456"]`). Used by `/stats` and the dashboard for staff analytics. |
+| `ticketLogsChannel` | `String?` | Channel ID where ticket transcripts and close-event embeds are archived. Set via `/ticket setlogs`. |
+| `ticketPanelChannel` | `String?` | Channel ID where the active ticket creation panel was posted. Stored so the panel can be refreshed or replaced. |
+| `ticketPanelMessage` | `String?` | Message ID of the ticket panel embed, enabling in-place edits when categories change. |
+| `isSetup` | `Boolean` | `false` by default. Set to `true` when `/setup` completes successfully. The `/config` dashboard displays a red warning when this is `false`. |
+
+---
+
+## Warn
+
+**Table:** `warns`
+
+Tracks the current warning count for each user per guild. Uses a composite primary key so counts are independent across different servers. The `roles` field is a JSON string snapshot of the user's role IDs at the moment they were isolated, enabling `/unmute` to fully restore their original role set.
+
+```prisma
+model Warn {
+  guildId String
+  userId  String
+  count   Int     @default(0)
+  roles   String? // JSON String
+
+  @@id([guildId, userId])
+  @@index([guildId])
+  @@map("warns")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `guildId` | `String` (PK part 1) | Discord guild ID — part of the composite primary key. |
+| `userId` | `String` (PK part 2) | Discord user ID — part of the composite primary key. |
+| `count` | `Int` | Current accumulated warning count. Resets to `0` after the 3-warn timeout is applied or after `/reset-warns` is run. |
+| `roles` | `String?` | JSON-serialised array of the user's role IDs saved before isolation (e.g. `["111","222"]`). Read by `/unmute` to restore roles. |
+
+---
+
+## WarnLog
+
+**Table:** `warn_logs`
+
+Immutable audit trail for every individual warning action. Unlike the `warns` table (which stores the current state), `warn_logs` is append-only and provides the full history surfaced by `/history`.
+
+```prisma
+model WarnLog {
+  id          Int      @id @default(autoincrement())
+  userId      String
+  moderatorId String
+  reason      String?  @db.Text
+  warnNumber  Int
+  timestamp   DateTime @default(now())
+
+  @@index([userId])
+  @@index([timestamp])
+  @@map("warn_logs")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `Int` (PK) | Auto-incrementing primary key. |
+| `userId` | `String` | The Discord user ID of the warned member. Indexed for fast lookup by `/history`. |
+| `moderatorId` | `String` | The Discord user ID of the moderator who issued the warning. |
+| `reason` | `String?` | Free-text reason for the warning. Stored as `TEXT` to support long explanations. Max 1000 characters enforced at the command level. |
+| `warnNumber` | `Int` | The warn count at the moment this log entry was created (e.g. `1`, `2`, or `3`). |
+| `timestamp` | `DateTime` | UTC timestamp when the warning was issued. Indexed for time-range queries. |
+
+---
+
+## Ticket
+
+**Table:** `tickets`
+
+Represents a single active or closed support ticket. Heavily indexed to support the `/ticket metrics` dashboard queries and the inactivity reminder background job.
+
+```prisma
+model Ticket {
+  ticketId      Int      @id @default(autoincrement())
+  guildId       String
+  userId        String
+  channelId     String?
+  status        String   @default("open")
+  type          String?
+  claimedBy     String?
+  transcriptUrl String?
+  lastActivity  DateTime @default(now())
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([guildId])
+  @@index([status])
+  @@index([guildId, status])
+  @@index([guildId, status, claimedBy])
+  @@index([userId])
+  @@index([channelId])
+  @@map("tickets")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `ticketId` | `Int` (PK) | Auto-incrementing primary key. |
+| `guildId` | `String` | The Discord guild ID the ticket belongs to. |
+| `userId` | `String` | The Discord user ID of the member who opened the ticket. |
+| `channelId` | `String?` | The Discord channel ID of the private ticket channel. Used by the inactivity reminder to ping the channel. |
+| `status` | `String` | Ticket lifecycle status: `"open"`, `"closed"`, or `"archived"`. Default is `"open"`. |
+| `type` | `String?` | The ticket category name selected by the user from the panel SelectMenu. |
+| `claimedBy` | `String?` | Discord user ID of the staff member who claimed the ticket via `claim_ticket`. Null if unclaimed. |
+| `transcriptUrl` | `String?` | URL path to the generated HTML transcript file stored locally on the server. |
+| `lastActivity` | `DateTime` | Updated whenever a new message is posted in the ticket channel. Drives the inactivity reminder logic. |
+| `createdAt` | `DateTime` | UTC timestamp when the ticket was created. |
+
+---
+
+## TicketCategory
+
+**Table:** `ticket_categories`
+
+Configuration record for each ticket category created via `/ticket add`. The panel SelectMenu is dynamically generated from all rows in this table for the given guild.
+
+```prisma
+model TicketCategory {
+  id               Int      @id @default(autoincrement())
+  guildId          String
+  name             String
+  description      String?
+  emoji            String?
+  roleId           String?
+  targetCategoryId String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("ticket_categories")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `Int` (PK) | Auto-incrementing primary key. |
+| `guildId` | `String` | Discord guild ID the category belongs to. |
+| `name` | `String` | Display name of the category, shown in the SelectMenu and ticket channel names. |
+| `description` | `String?` | Brief description shown as the SelectMenu option description. |
+| `emoji` | `String?` | Emoji prefix displayed next to the category name in the panel (e.g. `🔧`). |
+| `roleId` | `String?` | JSON-serialised string of one or more role IDs that have access to tickets in this category. Supports multiple roles added via `/ticket addrole`. |
+| `targetCategoryId` | `String?` | Discord Category channel ID where ticket channels are created. |
+| `createdAt` | `DateTime` | UTC timestamp when the category was created. |
+
+---
+
+## TicketAction
+
+**Table:** `ticket_actions`
+
+Append-only audit log for ticket lifecycle events. Every `claim`, `transfer`, and `close` action produces a row here, enabling the `/ticket metrics` command to build staff productivity rankings.
+
+```prisma
+model TicketAction {
+  id         Int      @id @default(autoincrement())
+  ticketId   Int
+  action     String
+  executorId String
+  targetId   String?
+  timestamp  DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([timestamp])
+  @@map("ticket_actions")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `Int` (PK) | Auto-incrementing primary key. |
+| `ticketId` | `Int` | References the `ticketId` in the `tickets` table. Indexed for per-ticket history lookups. |
+| `action` | `String` | The action taken: `"claim"`, `"transfer"`, or `"close"`. |
+| `executorId` | `String` | Discord user ID of the staff member who performed the action. |
+| `targetId` | `String?` | Discord user ID of the transfer recipient (populated only for `"transfer"` actions). |
+| `timestamp` | `DateTime` | UTC timestamp of the action. Indexed for metrics time-range queries. |
+
+---
+
+## WhitelistLog
+
+**Table:** `whitelist_logs`
+
+Records every approve (`aprobado`) and reject (`rechazado`) action performed by the Whitelist Bot. A unique constraint on `[userId, action]` prevents a user from having more than one record per action type — attempting to approve an already-approved user will upsert the existing row rather than create a duplicate.
+
+```prisma
+model WhitelistLog {
+  id           Int      @id @default(autoincrement())
+  userId       String
+  userTag      String?
+  moderatorId  String
+  moderatorTag String?
+  action       String   @default("aprobado") // "aprobado", "rechazado"
+  note         String?
+  timestamp    DateTime @default(now())
+
+  @@unique([userId, action])
+  @@map("whitelist_logs")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `Int` (PK) | Auto-incrementing primary key. |
+| `userId` | `String` | Discord user ID of the applicant. |
+| `userTag` | `String?` | Discord username tag of the applicant at the time of the decision (snapshot). |
+| `moderatorId` | `String` | Discord user ID of the staff member who made the decision. |
+| `moderatorTag` | `String?` | Discord username tag of the moderator at the time of the decision (snapshot). |
+| `action` | `String` | Either `"aprobado"` (approved) or `"rechazado"` (rejected). Defaults to `"aprobado"`. |
+| `note` | `String?` | Optional note attached by the moderator at the time of the `/aprobar` or `/rechazar` command. |
+| `timestamp` | `DateTime` | UTC timestamp of the whitelist decision. |
+
+---
+
+## ActivityLog
+
+**Table:** `activity_logs`
+
+General-purpose activity log written to by `utils/logger.js` and consumed by `/stats`, the web dashboard, and background cleanup jobs. Logs are automatically pruned after the configured retention period (default: 30 days).
+
+```prisma
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  userId    String?
+  action    String?  @db.Text
+  timestamp DateTime @default(now())
+
+  @@index([guildId])
+  @@index([userId])
+  @@index([guildId, timestamp])
+  @@map("activity_logs")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `Int` (PK) | Auto-incrementing primary key. |
+| `guildId` | `String` | Discord guild ID the event belongs to. Indexed for per-guild dashboard queries. |
+| `userId` | `String?` | Discord user ID associated with the action, if applicable. |
+| `action` | `String?` | Human-readable description of the event, stored as `TEXT` for long audit entries (e.g. message content snapshots). |
+| `timestamp` | `DateTime` | UTC timestamp of the event. The composite index on `[guildId, timestamp]` supports efficient time-range dashboard queries. |
+
+---
+
+## User
+
+**Table:** `users`
+
+Persisted Discord user profiles used by the web dashboard to display usernames and avatars without making a live Discord API call on every page load. Populated and refreshed by the background profile update job in `web/utils/userFetcher.js`.
+
+```prisma
+model User {
+  id            String   @id
+  username      String
+  avatar        String?
+  tag           String?
+  discriminator String?
+  lastSeenAt    DateTime @default(now()) @map("last_seen_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([updatedAt])
+  @@map("users")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `String` (PK) | Discord user snowflake ID. |
+| `username` | `String` | Current Discord username. |
+| `avatar` | `String?` | Discord avatar hash used to construct the CDN avatar URL. |
+| `tag` | `String?` | Cached username tag (e.g. `Username#0000` for legacy accounts). |
+| `discriminator` | `String?` | Four-digit discriminator for legacy Discord accounts. `"0"` for accounts migrated to the new username system. |
+| `lastSeenAt` | `DateTime` | Timestamp of the last bot interaction by this user. Mapped to `last_seen_at` in SQL. |
+| `updatedAt` | `DateTime` | Auto-managed Prisma `@updatedAt` timestamp. Indexed for the batch refresh job to find stale profiles. |
+
+---
+
+## SystemError
+
+**Table:** `system_errors`
+
+Records unhandled bot errors for post-mortem debugging. The `unhandledRejection` and `uncaughtException` handlers in both `index-general.js` and `index-whitelist.js` write here in production. Rows can be reviewed via `/db-tables` or Prisma Studio.
+
+```prisma
+model SystemError {
+  id        Int      @id @default(autoincrement())
+  context   String?
+  message   String?  @db.Text
+  stack     String?  @db.Text
+  timestamp DateTime @default(now())
+
+  @@map("system_errors")
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `Int` (PK) | Auto-incrementing primary key. |
+| `context` | `String?` | Short label describing where in the codebase the error occurred (e.g. `"Finalizar Setup Wizard"`). |
+| `message` | `String?` | The JavaScript `Error.message` string, stored as `TEXT`. |
+| `stack` | `String?` | The full `Error.stack` trace, stored as `TEXT` for deep debugging. |
+| `timestamp` | `DateTime` | UTC timestamp when the error was recorded. |

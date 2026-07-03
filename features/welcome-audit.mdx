@@ -1,0 +1,102 @@
+---
+title: "Welcome Cards and Full Audit Logging System"
+sidebarTitle: "Welcome & Audit"
+description: "Auto-generate canvas-based GTA-style welcome images on member join and log all server events including message edits, role changes, bans, and voice activity."
+---
+
+The Capinetta RP bot ships two complementary systems that activate through Discord gateway events: a canvas-based welcome card generator that fires on every member join, and a comprehensive audit logging pipeline that captures and persists a wide range of server events. Welcome cards are delivered as image attachments to the configured welcome channel, styled with a GTA-inspired font and the server's brand colors. Audit logs are sent as rich embeds to the configured logs channel and are also written to the `activityLog` table in MariaDB, making them searchable and filterable from the web dashboard.
+
+---
+
+## Welcome Cards
+
+The `guildMemberAdd` event in `events/bot-general/guildMemberAdd.js` triggers whenever a member joins the guild. It reads the `welcomeChannel` setting from `guild_settings` via `getGuildSettings` — if no welcome channel is configured the event exits silently.
+
+When configured, the bot generates a **1024 × 450 pixel** PNG image using Node.js `canvas`:
+
+<AccordionGroup>
+  <Accordion title="Background Layer">
+    Loads `assets/hero-bg.png` and applies a zoom effect: only the central 80% width and 60% height of the image is drawn, scaled to fill the full canvas. This removes edge artifacts and centers the visual focus.
+
+    A semi-transparent black overlay (`rgba(0, 0, 0, 0.4)`) is drawn on top to ensure text remains readable regardless of background brightness.
+  </Accordion>
+  <Accordion title="Circular Avatar with Neon Glow">
+    The member's avatar is fetched at 512px via `member.user.displayAvatarURL({ extension: 'png', size: 512 })` and drawn into a circular clip region centered at `(200, 225)` with a radius of `135px`. A 10px border in **blue (`#3498db`)** is stroked around the circle before clipping, creating the neon glow effect characteristic of the GTA loading screen aesthetic.
+  </Accordion>
+  <Accordion title="GTA-Style Typography">
+    Three text layers are drawn using the `pricedown.otf` font registered under the `GTA` family:
+
+    - **Fixed header** (`42px`, white): `¡BIENVENIDO/A A LA CIUDAD!`
+    - **Username** (`up to 100px`, blue `#3498db`): The member's username in uppercase. Font size auto-scales down in 5px increments until the rendered width fits within 600px, with a minimum of 40px.
+    - **Member count** (`30px`, gray `#aaaaaa`): `CIUDADANO NÚMERO #N` where N is `member.guild.memberCount`.
+
+    All text layers use a 15px black shadow blur for legibility.
+  </Accordion>
+</AccordionGroup>
+
+The final image is sent as an `AttachmentBuilder` to the welcome channel with a ping mention:
+
+```
+🔥 @username, ¡ya estás en las calles de **ServerName**!
+```
+
+**Post-join role assignment:** After the welcome card is sent, the bot also assigns the `roleNoVerify` role (configured via `GENERAL_ROLE_NO_VERIFY`) to the new member. This marks them as unverified until they complete the verification flow via `/set-verify`.
+
+---
+
+## Audit Logging
+
+All audit events are dispatched by individual event files in `events/bot-general/` and posted as embeds to the channel stored in `guild_settings.logsChannel`. The `sendLog` utility handles the embed creation and channel delivery; `logError` handles error reporting to the debug channel.
+
+| Event | Source File | What Is Logged |
+|-------|-------------|----------------|
+| Message deleted | `messageDelete.js` | Author tag, channel mention, full message content (or `*Archivo / embed*` if no text), executor from Audit Logs, timestamp |
+| Message edited | `messageUpdate.js` | Author, channel, before/after content comparison, timestamp |
+| Bulk message delete | `messageBulkDelete.js` | Channel, number of messages deleted, timestamp |
+| Member joined | `guildMemberAdd.js` | Username, account creation date, account age in days |
+| Role changed | `guildMemberUpdate.js` | User, list of roles added and/or removed (with debounce to consolidate rapid changes) |
+| Member banned | `guildBanAdd.js` | User tag, executor tag and ID (fetched from Audit Logs), reason |
+| User profile updated | `userUpdate.js` | Username or avatar changes |
+| Voice activity | `voiceStateUpdate.js` | Channel join, leave, and move between channels |
+
+### Message Delete Audit Log Lookup
+
+`messageDelete.js` waits **2 seconds** after the event fires before querying Discord Audit Logs (`AuditLogEvent.MessageDelete`). This delay ensures the audit log entry has been written by Discord's servers before the bot attempts to read it. If the most recent audit log entry matches the deleted message's author, channel, and was created within the last 5 seconds, the executor is identified. Otherwise, the author is assumed to have deleted their own message.
+
+### Ban Logging
+
+`guildBanAdd.js` immediately queries Audit Logs (`AuditLogEvent.MemberBanAdd`) to identify the moderator who issued the ban. The log entry uses the `sendLog` utility, which posts to the guild's configured `logsChannel`:
+
+```
+🔨 username#0000 fue baneado por ModeratorName (moderatorId)
+```
+
+---
+
+## Debounce for Role Changes
+
+`guildMemberUpdate.js` uses a debounce mechanism to consolidate multiple rapid role changes into a single audit log entry. When an administrator assigns several roles in quick succession (for example, using a role management bot or the Discord interface), each change fires a separate `guildMemberUpdate` event. Without debouncing, this produces a flood of nearly-identical log messages.
+
+The debounce collects all role additions and removals within a short window and emits one consolidated embed that lists all changed roles together. This keeps the logs channel readable during bulk role operations.
+
+---
+
+## Configuring Log Channels
+
+Both the welcome channel and the logs channel are stored per-guild in `guild_settings` and can be updated at any time without restarting the bot:
+
+| Setting | DB Field | How to Set |
+|---------|----------|-----------|
+| Welcome card channel | `welcomeChannel` | Run `/setup` or set `GENERAL_WELCOME_CHANNEL` in `.env` |
+| Audit logs channel | `logsChannel` | Run `/setup` or set `GENERAL_LOGS_CHANNEL` in `.env` |
+| Debug/error logs channel | `debugChannel` | Run `/set-debug #channel` at any time |
+
+The `/setup` wizard sets both `welcomeChannel` and `logsChannel` interactively during initial configuration. If you need to move error logs to a different channel without touching other settings, `/set-debug` updates only the `debugChannel` field.
+
+<Note>
+  All audit log events are also written to the `activityLog` table in MariaDB via structured logging. These records are searchable, filterable, and exportable to CSV through the **Activity Logs** section of the web dashboard, and are automatically purged after the retention window defined by `LOGS_RETENTION_DAYS` (default: 30 days).
+</Note>
+
+<Tip>
+  Create a **private staff-only channel** for your audit logs and restrict viewing permissions to moderators and above. Keeping the logs channel out of public view prevents members from knowing exactly what the bot tracks, which reduces attempts to circumvent detection.
+</Tip>

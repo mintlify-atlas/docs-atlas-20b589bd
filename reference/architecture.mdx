@@ -1,0 +1,215 @@
+---
+title: "Capinetta RP System Architecture Overview"
+sidebarTitle: "Architecture"
+description: "Understand the dual-bot architecture, module organization, data flow for anti-spam, tickets, and the dashboard, and how PM2 manages both bot processes."
+---
+
+The Capinetta RP Bot System is composed of two independent Node.js processes — the **General Bot** and the **Whitelist Bot** — connected to a shared MariaDB database through a single Prisma ORM client. An optional Redis instance provides distributed caching for the Express web dashboard that ships with the General Bot. All processes are managed in production by PM2 via `ecosystem.config.js`, which handles automatic restarts, log rotation, and per-process environment scoping.
+
+<Note>
+  Both bots share the same MariaDB database and the same Prisma schema, but their command and event registrations are entirely independent. Updating, restarting, or crashing one bot process has no effect on the other.
+</Note>
+
+---
+
+## Process Architecture
+
+The two main entry points define the boundary between the two bots.
+
+### `index-general.js` — General Bot
+
+This is the primary process. On startup it:
+
+1. Calls `loadEvents(client, "bot-general")` to register all event listeners from `events/bot-general/`.
+2. Calls `loadCommands(client, "bot-general")` to populate `client.commands` from `commands/bot-general/`.
+3. Pre-loads the global `warnMap` from the `warns` table via `getWarnsFromDB()` so warn counts survive bot restarts.
+4. Calls `startDashboard(client)` which starts the Express server (`web/dashboard.js`) with Passport Discord OAuth2, Redis caching, and EJS template rendering.
+5. Logs in with `config.general.token`.
+
+The General Bot requests these Discord Gateway intents: `Guilds`, `GuildMembers`, `GuildMessages`, `MessageContent`, `GuildVoiceStates`, and `GuildPresences`. It also enables the `Message`, `Channel`, `GuildMember`, and `User` partials to handle events on uncached objects.
+
+### `index-whitelist.js` — Whitelist Bot
+
+This is the secondary process. On startup it:
+
+1. Calls `loadEvents(client, "bot-whitelist")` — events from `events/bot-whitelist/`.
+2. Calls `loadCommands(client, "bot-whitelist")` — commands from `commands/bot-whitelist/`.
+3. Calls `initDB()` to ensure the Prisma connection is live.
+4. Logs in with `config.whitelist.token`.
+
+The Whitelist Bot only requests the `Guilds` intent, as it only needs to respond to slash command interactions.
+
+---
+
+## Directory Structure
+
+```
+capi-netta-rp/
+├── commands/
+│   ├── bot-general/
+│   │   ├── admin/        # setup, config, ticket, set-verify, set-support, set-debug, db-tables
+│   │   ├── moderation/   # warn, reset-warns, history, unmute, kick, clear
+│   │   └── utility/      # ping, stats
+│   └── bot-whitelist/
+│       └── admin/        # aprobar, rechazar
+├── events/
+│   ├── bot-general/      # ready, interactionCreate, messageCreate, messageDelete,
+│   │                     # messageUpdate, messageBulkDelete, guildMemberAdd,
+│   │                     # guildMemberUpdate, guildBanAdd, userUpdate, voiceStateUpdate
+│   └── bot-whitelist/    # ready, interactionCreate
+├── handlers/
+│   ├── commandHandler.js # Dynamic command loader (fs.readdirSync recursive)
+│   └── eventHandler.js   # Dynamic event loader (supports once and on)
+├── utils/
+│   ├── database.js       # Prisma client singleton + initDB()
+│   ├── dataHandler.js    # CRUD: Guilds, Users, Warnings, Activity Logs
+│   ├── logger.js         # sendLog() — audit log embed dispatcher
+│   ├── permissions.js    # Permission bit and staff role validation helpers
+│   └── tickets/          # Ticket module (fully isolated)
+│       ├── index.js      # Public exports for ticket handlers
+│       ├── controllers/  # Interaction routing (SelectMenu, Button)
+│       ├── handlers/     # Category, panel, metrics, inactivity handlers
+│       ├── views/        # Discord embeds and ActionRow components
+│       └── db/           # Ticket-specific Prisma queries
+├── web/
+│   ├── dashboard.js      # Express server with Passport Discord OAuth2
+│   ├── routes/           # api, auth, config, dashboard, management, warns, views
+│   ├── middleware/        # auth.js (session guard), security.js (CSP with nonces)
+│   ├── controllers/      # Route controller logic
+│   ├── utils/            # redisCache, backgroundJobs, cacheManager, userFetcher
+│   └── views/            # EJS templates for the web dashboard
+├── prisma/
+│   └── schema.prisma     # Database schema (10 models)
+├── index-general.js      # General Bot entry point
+├── index-whitelist.js    # Whitelist Bot entry point
+├── ecosystem.config.js   # PM2 process configuration
+└── config.js             # Environment variable loader and startup validation
+```
+
+---
+
+## Key Data Flows
+
+### Anti-Spam Flow
+
+The spam detection system lives in `events/bot-general/messageCreate.js` and uses an in-memory `consecutiveMap` attached to the General Bot client.
+
+```
+messageCreate event
+  → Track per-user message history in client.consecutiveMap (in-memory, per guild)
+  → On spam threshold breach (repeated identical messages):
+      → Save current user roles to DB (warns table → roles JSON field)
+      → Strip all user roles via Discord API
+      → Move user to isolation channel (configured supportChannel)
+      → bulkDelete all spam messages from the channel
+      → Increment warn count in DB and add WarnLog entry
+      → Send audit embed to logsChannel via logger.js
+```
+
+When the spam warning count reaches 3, the standard `/warn` escalation path is triggered: a Discord timeout is applied for `config.general.warnTimeoutMinutes` (default: 10 minutes) and the counter resets to 0.
+
+### Ticket Flow
+
+The ticket system is the most complex module in the codebase and is fully encapsulated under `utils/tickets/` to keep it isolated from the rest of the General Bot.
+
+```
+interactionCreate event (StringSelectMenu — ticket panel)
+  → controllers/router.js routes to handlers/panelHandlers.js
+  → panelHandlers.js:
+      → Looks up TicketCategory from DB by selected value and guildId
+      → Creates a private Discord channel under the configured Discord category
+      → Sets channel permissions for the user + all staff roles from roleId JSON
+      → Inserts a new Ticket record (status: "open") into the DB
+      → Posts the ticket welcome embed with Claim / Transfer / Close buttons
+      → Starts the inactivity timer (TICKET_INACTIVITY_WARNING ms)
+
+  On claim_ticket button:
+      → Updates tickets.claimedBy = executorId in DB
+      → Inserts TicketAction { action: "claim" }
+
+  On transfer_ticket button:
+      → Opens UserSelectMenu for staff selection
+      → Updates tickets.claimedBy = targetId in DB
+      → Inserts TicketAction { action: "transfer", targetId }
+
+  On close_ticket button:
+      → Shows confirmation (ButtonCollector, TICKET_CLOSE_TIMEOUT ms)
+      → On confirm:
+          → generateTranscript() → produces an .html file of all messages
+          → Saves transcript path to tickets.transcriptUrl
+          → DMs the HTML transcript to the ticket opener
+          → Posts close embed + transcript link to ticketLogsChannel
+          → Updates tickets.status = "closed"
+          → Inserts TicketAction { action: "close" }
+          → Deletes or archives the ticket channel
+```
+
+### Whitelist Flow
+
+```
+/aprobar or /rechazar slash command (Whitelist Bot)
+  → Permission check: executor must have WHITELIST_STAFF_ROLE_ID
+  → Upsert into whitelist_logs (unique on [userId, action])
+      → action: "aprobado"  (for /aprobar)
+      → action: "rechazado" (for /rechazar)
+  → Build styled result embed with applicant info + moderator info
+  → Send embed to WHITELIST_CHANNEL_ID
+  → (For /rechazar) include normativa link from config.whitelist.normativa
+```
+
+### Dashboard Flow
+
+```
+HTTP request → (Optional: Nginx reverse proxy handles TLS termination)
+  → Express server (web/dashboard.js)
+      → security.js middleware: Helmet, CORS, rate limiting, CSP nonce injection
+      → auth.js middleware: passport.session() check; redirect to /auth/discord if unauthenticated
+      → Route handler (routes/*)
+          → cacheManager.get(key)
+              → Redis lookup (if REDIS_HOST configured)
+              → In-memory cache fallback
+          → On cache miss:
+              → Prisma DB query (reads guild, warns, tickets, activity_logs, users)
+              → cacheManager.set(key, data, ttl)
+          → EJS template render (views/*.ejs)
+          → HTTP response
+```
+
+Background jobs run on startup alongside the Express server:
+- **Log cleanup job** — runs every `LOGS_CLEANUP_INTERVAL` ms, deletes `activity_logs` rows older than 30 days.
+- **Profile refresh job** — runs every `CACHE_USER_PROFILE_REFRESH` ms, refreshes up to `CACHE_USER_PROFILE_BATCH` user profiles from Discord API and updates the `users` table.
+
+---
+
+## Dynamic Loaders
+
+Both entry points use the same two handler modules, parameterised by the bot subdirectory name (`"bot-general"` or `"bot-whitelist"`).
+
+### `handlers/commandHandler.js`
+
+Scans `commands/<subDir>/` recursively. For each `.js` file found, it `require()`s the file and checks that the exported object has both a `data` property (the `SlashCommandBuilder` instance) and an `execute` function. Valid commands are stored in `client.commands` (a `discord.js` `Collection`). Files missing either property log a `[WARNING]` and are skipped. New command files are auto-discovered on the next bot restart — no manual registration code required.
+
+### `handlers/eventHandler.js`
+
+Scans `events/<subDir>/` (flat directory, no recursion). For each `.js` file it reads the exported `name` and `once` properties. If `once: true`, the event is registered with `client.once()`; otherwise with `client.on()`. Both registration paths forward the `client` instance as the first argument to `event.execute()`, giving event handlers access to the full client without needing to import it separately.
+
+---
+
+## Shared Utilities
+
+These modules are imported by both bots and the dashboard.
+
+<CardGroup cols={2}>
+  <Card title="utils/database.js" icon="database">
+    Exports a singleton Prisma client instance and an `initDB()` helper that calls `prisma.$connect()`. Both bots and the dashboard import from this single file, ensuring one connection pool is shared per process.
+  </Card>
+  <Card title="utils/dataHandler.js" icon="code">
+    High-level CRUD helpers: `getGuildSettings`, `updateGuildSettings`, `saveWarnToDB`, `addWarnLog`, `getWarnsFromDB`, `upsertUser`, and `logActivity`. Abstracts raw Prisma calls behind consistent function signatures.
+  </Card>
+  <Card title="utils/logger.js" icon="scroll">
+    Exports `sendLog(client, guildId, embed)` — looks up `logsChannel` from the DB for the given guild and sends an `EmbedBuilder` to that channel. Also exports `logError(client, error, context, guildId)` which writes to the `system_errors` table and sends a debug embed to `debugChannel`.
+  </Card>
+  <Card title="utils/permissions.js" icon="lock">
+    Validates Discord permission bits (`PermissionFlagsBits`) and checks whether a given guild member holds any of the guild's configured `staffRoles`. Used by ticket handlers and moderation commands to enforce access control beyond the base `setDefaultMemberPermissions` check.
+  </Card>
+</CardGroup>

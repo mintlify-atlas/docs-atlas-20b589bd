@@ -1,0 +1,104 @@
+---
+title: "Managing Capinetta RP Bots with PM2"
+sidebarTitle: "PM2"
+description: "Use PM2 to run both bots as persistent background processes with automatic restarts, log aggregation, startup scripts, and live monitoring via pm2 monit."
+---
+
+PM2 is the recommended process manager for running both bots — `capinetta-general` and `capinetta-whitelist` — reliably in production. It handles automatic restarts on crash, structured log aggregation, and registering the bots as system services so they survive server reboots. The project ships with a ready-made `ecosystem.config.js` that defines both processes with sensible defaults.
+
+## ecosystem.config.js
+
+The project root contains this configuration file, which `npm run prod` passes directly to PM2:
+
+```js ecosystem.config.js
+module.exports = {
+    apps: [{
+        name: "capinetta-general",
+        script: "./index-general.js",
+        watch: false,
+        env: {
+            NODE_ENV: "production",
+        }
+    }, {
+        name: "capinetta-whitelist",
+        script: "./index-whitelist.js",
+        watch: false,
+        env: {
+            NODE_ENV: "production",
+        }
+    }]
+};
+```
+
+## Common PM2 Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run prod` | Start both bots via PM2 (runs `pm2 start ecosystem.config.js`) |
+| `pm2 list` | List all running processes and their status |
+| `pm2 logs` | Tail logs from all processes |
+| `pm2 logs capinetta-general` | Tail logs from the General Bot only |
+| `pm2 restart all` | Restart all bots |
+| `pm2 restart capinetta-general` | Restart only the General Bot |
+| `pm2 stop all` | Stop all processes |
+| `pm2 delete all` | Remove all processes from PM2 |
+| `pm2 monit` | Live dashboard: CPU, RAM, and logs per process |
+
+## Auto-Start on Server Reboot
+
+```bash
+# Generate and register the systemd startup script
+# Run this command, then copy and execute the sudo command it prints
+pm2 startup
+
+# Save the current process list so it is restored after reboot
+pm2 save
+```
+
+After running `pm2 startup`, PM2 will print a `sudo env PATH=...` command tailored to your system. Copy and run that exact command to complete the registration.
+
+## Updating the Bot
+
+```bash
+# Pull the latest changes from the repository
+git pull
+
+# Install any new or updated dependencies
+npm install
+
+# Apply database schema migrations if the Prisma schema changed
+npx prisma db push
+
+# Redeploy slash commands if any command definitions changed
+npm run deploy
+
+# Restart both bots to load the new code
+pm2 restart all
+```
+
+## Log Management
+
+```bash
+# View logs with timestamps
+pm2 logs --timestamp
+
+# Clear all accumulated log files
+pm2 flush
+
+# Install the PM2 log rotation module (recommended for production)
+pm2 install pm2-logrotate
+
+# Cap individual log files at 50 MB
+pm2 set pm2-logrotate:max_size 50M
+
+# Keep 7 days of rotated log archives
+pm2 set pm2-logrotate:retain 7
+```
+
+<Tip>
+  Run `pm2 monit` for a real-time terminal dashboard that shows CPU usage, heap memory, restart count, and live log output for both `capinetta-general` and `capinetta-whitelist` side by side. It's the fastest way to spot a crash loop or a memory leak without digging through log files.
+</Tip>
+
+<Note>
+  `NODE_ENV=production` is set directly in `ecosystem.config.js` for both processes. This enables production-mode optimizations in Express (fewer verbose errors, better performance) and suppresses development-only warnings from libraries like discord.js and Prisma.
+</Note>

@@ -1,0 +1,97 @@
+---
+title: "Slash Command Reference for Capinetta RP Bots"
+sidebarTitle: "Commands"
+description: "Complete reference for all slash commands across both bots: admin setup and config, ticket management, moderation actions, whitelist approval, and utility monitoring commands."
+---
+
+Both bots register their slash commands through dedicated deploy scripts — `deploy-general.js` for the General Bot and `deploy-whitelist.js` for the Whitelist Bot. Commands are organized by bot and category, and all require specific Discord permission bits set via `setDefaultMemberPermissions` in their `SlashCommandBuilder` definitions. Because commands are registered guild-scoped, they appear instantly in the server without the usual one-hour global propagation delay.
+
+<Note>
+  Run `npm run deploy` to register (or re-register) all slash commands. This script executes both `deploy-general.js` and `deploy-whitelist.js` in sequence, pushing updated command definitions to Discord.
+</Note>
+
+<Tip>
+  Commands are guild-scoped, meaning they are registered directly to your Discord server rather than globally. This gives instant availability — no 1-hour propagation delay — and lets you iterate on command changes rapidly during development.
+</Tip>
+
+---
+
+## Bot General — Admin Commands
+
+These commands require the **Administrator** permission and are loaded from `commands/bot-general/admin/`.
+
+### Setup & Configuration
+
+| Command | Description | Permission |
+|---|---|---|
+| `/setup` | Interactive 4-step wizard to configure system channels (logs, verify, debug), user roles (user, unverified, muted), staff roles, and optional modules (welcome, support). Includes a ✨ Auto-Create button to generate missing channels and roles automatically. | Administrator |
+| `/config` | Master dashboard with live DB read-back — view and edit all guild settings via a two-level StringSelectMenu system. Edits are written to MariaDB immediately and the panel re-renders to reflect the new state. | Administrator |
+| `/set-verify` | Posts a verification button panel in the current channel. Users who click receive the verified role after a configurable 1-minute cooldown, protecting against automated raids. | Administrator |
+| `/set-support` | Posts the informational support/rules message to the current channel. | Administrator |
+| `/set-debug` | Redirects the bot's debug and error log channel to a new target without running `/setup` again. | Administrator |
+| `/db-tables` | Diagnostic command that queries all Prisma models and displays a live record count per database table. Useful for verifying data integrity after migrations. | Administrator |
+
+### Ticket Management
+
+The `/ticket` command is a parent command with eight subcommands for full lifecycle management of the ticket system.
+
+| Command | Subcommand | Description | Permission |
+|---|---|---|---|
+| `/ticket` | `add <nombre> <emoji> <rol> <categoria_discord> <descripcion>` | Create a new ticket category with a primary role, Discord category channel, emoji, and description. Optionally accepts two extra roles (`rol_extra_1`, `rol_extra_2`). | Administrator |
+| `/ticket` | `edit <nombre_actual>` | Modify an existing category's name, emoji, description, primary role, extra roles, or target Discord category. All fields except the current name are optional. | Administrator |
+| `/ticket` | `remove <nombre>` | Permanently delete a ticket category by its exact name. | Administrator |
+| `/ticket` | `list` | Display all configured ticket categories for the guild in an embed. | Administrator |
+| `/ticket` | `panel [canal]` | Send the interactive ticket creation panel (SelectMenu embed) to a specified text channel. Users select a category to open a private ticket channel. | Administrator |
+| `/ticket` | `setlogs <canal>` | Set the channel where ticket transcripts and close logs are automatically archived. | Administrator |
+| `/ticket` | `addrole <categoria> <rol>` | Append an additional staff role to an existing category so that role can view and manage those tickets. | Administrator |
+| `/ticket` | `metrics` | Display support KPIs: average resolution time per category, total ticket volume, and a staff productivity ranking. | Administrator |
+
+---
+
+## Bot General — Moderation Commands
+
+Loaded from `commands/bot-general/moderation/`. Permissions vary per command.
+
+| Command | Arguments | Description | Permission |
+|---|---|---|---|
+| `/warn` | `@usuario [razon]` | Issue a warning to a user. Warnings are persisted to the `warns` table and logged in `warn_logs`. At 3 cumulative warnings the bot automatically applies a Discord timeout for the duration configured in `config.general.warnTimeoutMinutes` (default: 10 minutes). | Moderate Members |
+| `/reset-warns` | `@usuario` | Clear a user's warning counter in the database, resetting them to zero. | Administrator |
+| `/history` | `@usuario` | Retrieve a user's full sanction history including warns, kicks, and bans with timestamps. | Manage Messages |
+| `/unmute` | `@usuario` | Lift a user's sanction and restore all roles that were saved to the `warns.roles` JSON column before isolation. | Manage Roles |
+| `/kick` | `@usuario razon` | Kick a member from the server with a reason that is written to the Discord Audit Log for full traceability. | Kick Members |
+| `/clear` | `amount` | Bulk delete up to 100 messages in the current channel using Discord's `bulkDelete` API. | Manage Messages |
+
+---
+
+## Bot General — Utility Commands
+
+Loaded from `commands/bot-general/utility/`.
+
+| Command | Description | Permission |
+|---|---|---|
+| `/stats` | Displays a real-time technical dashboard embed with: CPU load average, RAM usage (system + Node.js heap + RSS), process uptime, disk info, Discord bot WebSocket latency, MariaDB connection latency, live ticket counts (open / unclaimed / closed / archived), warn log count, system error count, and guild member breakdown. Results are cached for 10 seconds to prevent spam. | Administrator |
+| `/ping` | Quick latency check — shows the bot's WebSocket heartbeat ping to Discord and tests the MariaDB connection round-trip time. Available to all members. | Everyone |
+
+---
+
+## Bot Whitelist — Admin Commands
+
+Loaded from `commands/bot-whitelist/admin/`. The Whitelist Bot runs as a completely separate process (`index-whitelist.js`) sharing the same database.
+
+| Command | Arguments | Description | Permission |
+|---|---|---|---|
+| `/aprobar` | `@usuario [nota]` | Approve a whitelist application. Sends a styled embed to the configured results channel (`WHITELIST_CHANNEL_ID`) and records the action in the `whitelist_logs` table. An optional note can be attached. | Staff Role (`WHITELIST_STAFF_ROLE_ID`) |
+| `/rechazar` | `@usuario razon` | Reject a whitelist application. Sends a styled embed with the reason and a link to the server's normativa (rules document). Records the rejection in `whitelist_logs` with a unique constraint preventing duplicate records per user per action. | Staff Role (`WHITELIST_STAFF_ROLE_ID`) |
+
+---
+
+## Ticket Button Interactions
+
+These interactions are triggered by buttons and select menus rendered inside live ticket channels — they are not slash commands and do not appear in the Discord command menu.
+
+| Interaction ID | Trigger Type | Description |
+|---|---|---|
+| `claim_ticket` | Button | A staff member claims ownership of the open ticket, associating their Discord ID with the `claimedBy` field in the `tickets` table. |
+| `transfer_ticket` | Button → UserSelectMenu | Reassign the ticket to another staff member. Opens a UserSelectMenu for selection, then updates `claimedBy` in the database and records the event in `ticket_actions`. |
+| `close_ticket` | Button | Initiates the close flow with an optional confirmation step (configurable via `TICKET_CLOSE_TIMEOUT`). On confirmation: generates an HTML transcript, DMs it to the user, archives it in the logs channel, updates the ticket `status` to `closed`, and writes a record to `ticket_actions`. |
+| Verification button (from `/set-verify`) | Button | Grants the user the configured verified role after a 1-minute cooldown check. Protects against automated verification raids. |

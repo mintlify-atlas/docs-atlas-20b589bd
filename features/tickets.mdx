@@ -1,0 +1,147 @@
+---
+title: "Professional Ticket System with Transcripts and KPIs"
+sidebarTitle: "Tickets"
+description: "Create support categories, post interactive panels, manage tickets through a full lifecycle with claim/transfer/close, automatic HTML transcripts, and view staff KPI metrics."
+---
+
+The Capinetta RP ticket system is a fully self-contained support module located in `utils/tickets/`. It supports dynamic support categories with custom names, emojis, descriptions, and role assignments. When a panel is posted to a channel, users interact with a button grid to open a private ticket channel. Staff members can claim, transfer, and close tickets through button interactions — and when a ticket closes, the system automatically generates a complete HTML transcript, delivers it to the user by DM, archives it in the configured logs channel, and records the action in the database. Inactivity reminders ping staff when tickets go unanswered, and the `/ticket metrics` command exposes KPI data on resolution times, volume, and staff productivity.
+
+---
+
+## Setup Flow
+
+<Steps>
+  <Step title="Create a ticket category">
+    Run `/ticket add` to define a new support category. You must provide a name, emoji, description, the primary staff role, and the Discord category channel where ticket text channels will be created.
+
+    ```
+    /ticket add nombre:support-general emoji:🎫 rol:@StaffRole categoria_discord:#Support descripcion:"General support questions"
+    ```
+
+    Up to two additional roles can be passed as `rol_extra_1` and `rol_extra_2` during creation, or added later with `/ticket addrole`.
+  </Step>
+  <Step title="Add extra staff roles (optional)">
+    Grant additional roles access to tickets in a specific category:
+
+    ```
+    /ticket addrole categoria:support-general rol:@SeniorStaff
+    ```
+
+    This appends the role to the stored role ID list for that category without replacing existing roles.
+  </Step>
+  <Step title="Set the logs channel">
+    Configure where closed ticket transcripts and action logs will be posted:
+
+    ```
+    /ticket setlogs canal:#ticket-logs
+    ```
+
+    This stores `ticketLogsChannel` in `guild_settings`. Without this, transcripts are generated and saved locally but not archived to a Discord channel.
+  </Step>
+  <Step title="Post the support panel">
+    Send the interactive button panel to a public support channel:
+
+    ```
+    /ticket panel canal:#support-channel
+    ```
+
+    The bot will ask for confirmation before posting. Once confirmed, it sends an embed with a button for each configured category (up to 3 buttons per row). The panel message ID and channel ID are stored in `guild_settings` so the panel auto-updates whenever categories are added, edited, or removed.
+  </Step>
+</Steps>
+
+<Tip>
+  Configure the logs channel with `/ticket setlogs` **before** the first ticket is closed. If it is not set, transcripts are still saved to disk in `data/transcripts/` but will not be posted to any Discord channel.
+</Tip>
+
+---
+
+## Ticket Lifecycle
+
+When a user clicks a category button on the panel, the `create_ticket_` interaction is routed through `controllers/router.js` → `actions.createTicketProcess`. The system enforces one open ticket per user — attempting to create a second ticket while one is already open returns an ephemeral error pointing to the existing channel.
+
+**Full lifecycle flow:**
+
+1. **Creation** — A private text channel named `ticket-XXXX` (zero-padded ID) is created under the category channel. Permission overwrites grant view/send access to the user and all configured staff roles. The general `@everyone` role is explicitly denied.
+
+2. **Welcome embed** — The bot posts a welcome embed in the new channel with the category emoji, name, and the user's mention. Three control buttons are attached: **Claim**, **Transfer**, and **Close**.
+
+3. **Claim** (`claim_ticket` button) — Any authorized staff member can claim the ticket, assigning it to themselves. The embed updates to show who claimed it, and inactivity timers are cleared. Only the claiming staff member (or roles with TICKET.CLOSE permission) can close a claimed ticket.
+
+4. **Transfer** (`transfer_ticket` button) — Opens a `UserSelectMenu` so the current claimant can reassign the ticket to another staff member. The reassignment is recorded via `DB.assignTicket` and logged to the ticket logs channel.
+
+5. **Close** (`close_ticket` button) — Triggers a confirmation prompt. On confirmation (`confirm_close`):
+   - The inactivity timer is cleared.
+   - An HTML transcript is generated using `discord-html-transcripts` with `limit: -1` (full history) and `saveImages: true`.
+   - The HTML file is saved locally to `data/transcripts/ticket-{id}-{timestamp}.html`.
+   - The transcript is sent as an attachment to the user's DMs.
+   - A close log embed with the transcript attachment is posted to the configured `ticketLogsChannel`.
+   - The ticket record is updated in the database with the local transcript filename.
+   - The channel is deleted after a 5-second delay.
+
+<Note>
+  Transcripts are stored on the server's local filesystem under `data/transcripts/` and served through the web dashboard. Only authenticated staff members with dashboard access can view them via the **Tickets** section.
+</Note>
+
+---
+
+## Inactivity Reminders
+
+After a ticket is created or activity is last recorded, the system schedules two automatic inactivity pings targeting all configured staff roles:
+
+| Reminder | Default Delay | Environment Variable |
+|----------|-------------|---------------------|
+| First reminder | 30 minutes | `TICKET_INACTIVITY_WARNING` |
+| Second reminder | 60 minutes | `TICKET_INACTIVITY_RETRY` |
+
+```js
+// config.js
+tickets: {
+  inactivityWarningMs: 30 * 60 * 1000,  // 30 minutes
+  inactivityRetryMs:   60 * 60 * 1000,  // 60 minutes
+}
+```
+
+Each time a message is sent inside a `ticket-` prefixed channel, `touchTicketActivity` updates the `lastActivity` timestamp in the database and resets the inactivity timer. If the ticket is claimed or closed before a reminder fires, the timer is cleared automatically.
+
+---
+
+## Ticket Management Commands
+
+All ticket management commands require the **Administrator** permission.
+
+| Command | Description |
+|---------|-------------|
+| `/ticket add` | Create a new support category with name, emoji, description, roles, and parent Discord category |
+| `/ticket addrole` | Append an additional staff role to an existing category |
+| `/ticket edit` | Modify any attribute of an existing category (name, emoji, description, roles, parent category) |
+| `/ticket remove` | Delete a category. Triggers an automatic panel refresh |
+| `/ticket list` | Display all configured categories with their emojis |
+| `/ticket panel` | Post the interactive button panel to a specified channel |
+| `/ticket setlogs` | Set the channel where transcripts and close logs are archived |
+| `/ticket metrics` | Display KPI embed with resolution time, volume by category, and staff ranking |
+
+Every command that modifies categories (`add`, `edit`, `remove`) automatically refreshes the live panel message if one has been posted, keeping it in sync without manual intervention.
+
+---
+
+## Ticket Metrics
+
+The `/ticket metrics` command queries the database and returns a rich embed with three key KPI sections:
+
+<CardGroup cols={3}>
+  <Card title="⏱️ Avg Resolution Time" icon="clock">
+    Average time from ticket creation to closure, displayed in hours and minutes. Calculated from the `ticket_actions` records for the guild.
+  </Card>
+  <Card title="📂 Volume by Category" icon="folder">
+    Total ticket count broken down by support category name, showing which areas generate the most requests.
+  </Card>
+  <Card title="🏆 Staff Ranking" icon="trophy">
+    Top staff members ranked by resolved ticket count, displayed with gold/silver/bronze medals for the top three.
+  </Card>
+</CardGroup>
+
+```
+/ticket metrics
+```
+
+The embed is sent as an ephemeral reply visible only to the administrator who ran the command.

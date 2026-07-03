@@ -1,0 +1,98 @@
+{
+  "projectType": "saas",
+  "projectName": "Capinetta RP Bot System",
+  "projectDescription": "A modular multi-bot management system for FiveM/GTA Roleplay Discord communities, featuring automated anti-spam, moderation, a professional ticket system, whitelist management, and a web dashboard with Discord OAuth2 authentication.",
+  "theme": "aspen",
+  "primaryColor": "#65c67d",
+  "lightColor": "#4f3a5d",
+  "darkColor": "#e7e7e7",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/anti-spam",
+              "features/moderation",
+              "features/tickets",
+              "features/whitelist",
+              "features/dashboard",
+              "features/welcome-audit"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/oracle-cloud",
+              "deployment/vps",
+              "deployment/docker",
+              "deployment/pm2"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/commands",
+              "reference/database-schema",
+              "reference/environment-variables",
+              "reference/architecture"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/guidelines",
+              "contributing/security",
+              "contributing/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Dual-bot architecture: Bot General + Bot Whitelist running independently via PM2",
+    "Automated anti-spam with role isolation, bulk-delete, and 7-day account age check",
+    "Intelligent moderation: /warn (auto-timeout at 3 warns), /kick, /unmute with role restore from DB",
+    "Professional ticket system with categories, claim/transfer/close, transcripts, and inactivity reminders",
+    "Whitelist management: /aprobar and /rechazar with embed notifications",
+    "Web dashboard with Discord OAuth2, Redis caching, and real-time KPIs",
+    "Multi-server support: per-guild settings stored in MariaDB via Prisma ORM",
+    "Full audit logging: message edits/deletes, role changes (with debounce), voice activity, bans",
+    "Canvas-based custom welcome cards with GTA-style font and neon avatar",
+    "Monitoring & alerting: /stats for CPU/RAM/uptime, configurable webhook alerts"
+  ],
+  "publicApiSurface": [
+    "/setup — Interactive wizard to configure channels, roles, and verification",
+    "/config — Master dashboard for viewing/editing guild configuration via SelectMenus",
+    "/ticket add|edit|remove|list|panel|setlogs|metrics|addrole — Full ticket category management",
+    "/warn @user reason — Warn user; auto-timeout at 3rd warning",
+    "/reset-warns @user — Clear warning counter",
+    "/history @user — Full sanction history (warns, kicks, bans)",
+    "/unmute @user — Lift sanction and restore all roles from DB",
+    "/kick @user reason — Kick with audit log entry",
+    "/clear amount — Bulk delete messages",
+    "/aprobar @user — Approve whitelist application with embed",
+    "/rechazar @user reason — Reject whitelist application",
+    "/stats — Real-time server stats (CPU, RAM, disk, DB latency)",
+    "/ping — Bot and DB latency check",
+    "/set-verify — Post verification button panel (1-min cooldown)",
+    "/set-support — Post support/rules informational message",
+    "/set-debug — Redirect error log channel",
+    "/db-tables — Diagnostic: record counts per DB table",
+    "Web Dashboard: GET /api/metrics — System metrics (auth required)",
+    "Web Dashboard: GET /api/tickets — Ticket data and KPIs (auth required)",
+    "Web Dashboard: Discord OAuth2 at /auth/discord"
+  ]
+}

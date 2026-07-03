@@ -1,0 +1,130 @@
+---
+title: "Run Capinetta RP Bot System with Docker Compose"
+sidebarTitle: "Docker"
+description: "Use Docker Compose to run both bots and the dashboard alongside MariaDB and Redis in isolated containers, ideal for local development and reproducible environments."
+---
+
+Docker Compose bundles the Capinetta RP Bot System with MariaDB and Redis in isolated, reproducible containers — no manual dependency installation required on the host. This approach is ideal for local development, automated testing, or containerized production deployments where you want strict environment parity between machines.
+
+## Docker Compose File
+
+Create a `docker-compose.yml` in the project root:
+
+```yaml docker-compose.yml
+version: '3.8'
+services:
+  mariadb:
+    image: mariadb:10.11
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: capi_netta
+      MYSQL_USER: capi
+      MYSQL_PASSWORD: capi_password
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  bot:
+    build: .
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: mysql://capi:capi_password@mariadb:3306/capi_netta
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  mariadb_data:
+```
+
+## Dockerfile
+
+Create a `Dockerfile` in the project root:
+
+```dockerfile Dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apk add --no-cache openssl
+
+# Install Node dependencies
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy application source
+COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
+
+EXPOSE 3000
+
+CMD ["node", "index-general.js"]
+```
+
+## Starting the Stack
+
+```bash
+# 1. Copy and configure your .env file
+#    DATABASE_URL and REDIS_HOST will be overridden by docker-compose environment
+cp .env.example .env
+nano .env   # Set GENERAL_TOKEN, WHITELIST_TOKEN, OAuth2 credentials, etc.
+
+# 2. Build images and start all services in the background
+docker compose up -d
+
+# 3. Push the Prisma schema to the database (first run only)
+docker compose exec bot npx prisma db push
+
+# 4. Deploy slash commands to Discord (first run, or after command changes)
+docker compose exec bot npm run deploy
+
+# 5. Tail live logs from the bot container
+docker compose logs -f bot
+```
+
+## Useful Docker Compose Commands
+
+```bash
+# Rebuild images after code changes
+docker compose up -d --build
+
+# Restart only the bot (e.g., after editing .env)
+docker compose restart bot
+
+# Stop all containers without removing volumes
+docker compose stop
+
+# Stop and remove containers (data volumes preserved)
+docker compose down
+
+# View running containers and their status
+docker compose ps
+```
+
+<Note>
+  PM2 is **not used** inside Docker containers. The `restart: unless-stopped` policy on the `bot` service serves the same purpose — Docker's own process manager will automatically restart the container if it exits unexpectedly or after a host reboot (when the Docker daemon itself starts).
+</Note>
+
+<Tip>
+  During development, use `docker compose down -v` to **completely reset all data** including the MariaDB volume. This is useful when you want a clean slate after schema experiments — but be careful not to run it in an environment with real community data.
+</Tip>
